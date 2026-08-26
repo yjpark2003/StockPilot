@@ -1,0 +1,30 @@
+analysis:
+  news_count: 3
+  report_dir: reports/weekly
+api:
+  dart_key_env: DART_API_KEY
+stocks:
+- code: '005930'
+  market: KOSPI
+  name: 삼성전자
+- code: '000660'
+  market: KOSPI
+  name: SK하이닉스
+- code: '035420'
+  market: KOSPI
+  name: NAVER
+- code: '035720'
+  market: KOSPI
+  name: 카카오
+- code: '051910'
+  market: KOSPI
+  name: LG화학
+- code: '006400'
+  market: KOSPI
+  name: 삼성SDI
+- code: '373220'
+  market: KOSPI
+  name: LG에너지솔루션
+- code: '207940'
+  market: KOSPI
+  name: 삼성바이오로직스
