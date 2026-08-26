@@ -16,6 +16,14 @@ app = FastAPI(title="주간 주식 분석 리포트")
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "..", "reports", "weekly")
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
 
+
+def get_config_path(filename: str) -> str:
+    """설정 파일 경로 반환 (로컬 > 기본 순서)"""
+    local_path = os.path.join(CONFIG_DIR, "local", filename)
+    if os.path.exists(local_path):
+        return local_path
+    return os.path.join(CONFIG_DIR, filename)
+
 # 진행률 추적
 analysis_progress = {
     "is_running": False,
@@ -42,18 +50,18 @@ class ForeignStockRequest(BaseModel):
 
 
 def load_stock_config():
-    """종목 설정 로드"""
+    """종목 설정 로드 (로컬 > 기본 순서로 적용)"""
     stocks = {"domestic": [], "foreign": []}
     
     # 국내 종목
-    domestic_path = os.path.join(CONFIG_DIR, "stocks.yaml")
+    domestic_path = get_config_path("stocks.yaml")
     if os.path.exists(domestic_path):
         with open(domestic_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
             stocks["domestic"] = config.get("stocks", [])
     
     # 해외 종목
-    foreign_path = os.path.join(CONFIG_DIR, "foreign_stocks.yaml")
+    foreign_path = get_config_path("foreign_stocks.yaml")
     if os.path.exists(foreign_path):
         with open(foreign_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
@@ -449,7 +457,7 @@ async def get_domestic_stocks():
 @app.post("/api/stocks/domestic")
 async def add_domestic_stock(stock: DomesticStockRequest):
     """국내 종목 추가"""
-    domestic_path = os.path.join(CONFIG_DIR, "stocks.yaml")
+    domestic_path = get_config_path("stocks.yaml")
     if os.path.exists(domestic_path):
         with open(domestic_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
@@ -476,7 +484,7 @@ async def add_domestic_stock(stock: DomesticStockRequest):
 @app.delete("/api/stocks/domestic/{code}")
 async def delete_domestic_stock(code: str):
     """국내 종목 삭제"""
-    domestic_path = os.path.join(CONFIG_DIR, "stocks.yaml")
+    domestic_path = get_config_path("stocks.yaml")
     if not os.path.exists(domestic_path):
         raise HTTPException(status_code=404, detail="설정 파일을 찾을 수 없습니다.")
     
@@ -506,7 +514,7 @@ async def get_foreign_stocks():
 @app.post("/api/stocks/foreign")
 async def add_foreign_stock(stock: ForeignStockRequest):
     """해외 종목 추가"""
-    foreign_path = os.path.join(CONFIG_DIR, "foreign_stocks.yaml")
+    foreign_path = get_config_path("foreign_stocks.yaml")
     if os.path.exists(foreign_path):
         with open(foreign_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
@@ -533,7 +541,7 @@ async def add_foreign_stock(stock: ForeignStockRequest):
 @app.delete("/api/stocks/foreign/{ticker}")
 async def delete_foreign_stock(ticker: str):
     """해외 종목 삭제"""
-    foreign_path = os.path.join(CONFIG_DIR, "foreign_stocks.yaml")
+    foreign_path = get_config_path("foreign_stocks.yaml")
     if not os.path.exists(foreign_path):
         raise HTTPException(status_code=404, detail="설정 파일을 찾을 수 없습니다.")
     
@@ -562,7 +570,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
     
     # 현재 등록된 종목에서 한글명/종목코드 검색
     if market in ("all", "domestic"):
-        domestic_path = os.path.join(CONFIG_DIR, "stocks.yaml")
+        domestic_path = get_config_path("stocks.yaml")
         if os.path.exists(domestic_path):
             with open(domestic_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
@@ -579,7 +587,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
                     })
     
     if market in ("all", "foreign"):
-        foreign_path = os.path.join(CONFIG_DIR, "foreign_stocks.yaml")
+        foreign_path = get_config_path("foreign_stocks.yaml")
         if os.path.exists(foreign_path):
             with open(foreign_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}

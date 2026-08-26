@@ -1,6 +1,11 @@
 # 환경 변수
 .env
 
+# 로컬 전용 설정 (개인 종목, API 키 등)
+config/local/
+config/stocks.yaml
+config/foreign_stocks.yaml
+
 # 가상 환경
 venv/
 .venv/

@@ -27,11 +27,21 @@ def load_env():
 
 
 def load_config(market: str = "domestic"):
-    """설정 파일 로드"""
+    """설정 파일 로드 (로컬 > 기본 순서로 적용)"""
+    base_dir = os.path.join(os.path.dirname(__file__), "..", "config")
+    
     if market == "foreign":
-        config_path = os.path.join(os.path.dirname(__file__), "..", "config", "foreign_stocks.yaml")
+        filename = "foreign_stocks.yaml"
     else:
-        config_path = os.path.join(os.path.dirname(__file__), "..", "config", "stocks.yaml")
+        filename = "stocks.yaml"
+    
+    # 로컬 전용 설정 먼저 확인
+    local_path = os.path.join(base_dir, "local", filename)
+    if os.path.exists(local_path):
+        config_path = local_path
+    else:
+        config_path = os.path.join(base_dir, filename)
+    
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 

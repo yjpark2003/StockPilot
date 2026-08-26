@@ -92,31 +92,45 @@ crontab -e
 
 ### 종목 추가/수정
 
+#### 로컬 전용 설정 (권장)
+개인 종목은 `config/local/` 디렉토리에 저장하세요. Git에 포함되지 않습니다.
+
+```bash
+# 1. 예시 파일 복사
+cp config/local/stocks.yaml.example config/local/stocks.yaml
+cp config/local/foreign_stocks.yaml.example config/local/foreign_stocks.yaml
+
+# 2. 편집
+vim config/local/stocks.yaml
+```
+
+#### 설정 우선순위
+- `config/local/stocks.yaml` > `config/stocks.yaml` (로컬이 우선)
+- `config/local/foreign_stocks.yaml` > `config/foreign_stocks.yaml`
+
 #### 국내 종목
-`config/stocks.yaml` 파일 편집:
+`config/local/stocks.yaml` 파일 생성/편집:
 ```yaml
 stocks:
   - code: "005930"
     name: "삼성전자"
     market: "KOSPI"
-  - code: "NEW_CODE"
-    name: "새종목"
-    market: "KOSPI"
 ```
 
 #### 해외 종목
-`config/foreign_stocks.yaml` 파일 편집:
+`config/local/foreign_stocks.yaml` 파일 생성/편집:
 ```yaml
 foreign_stocks:
   - ticker: "AAPL"
     name: "Apple"
     market: "NASDAQ"
     currency: "USD"
-  - ticker: "TSLA"
-    name: "Tesla"
-    market: "NASDAQ"
-    currency: "USD"
 ```
+
+#### Git에 포함되지 않는 파일
+- `.env` (API 키)
+- `config/local/` (개인 종목 설정)
+- `config/stocks.yaml`, `config/foreign_stocks.yaml` (기본 종목 설정)
 
 ### DART API 설정
 `.env` 파일에 API 키 설정:
@@ -140,8 +154,11 @@ DART_API_KEY=your_api_key_here
 ```
 StockPilot/
 ├── config/
-│   ├── stocks.yaml          # 국내 종목 설정
-│   └── foreign_stocks.yaml  # 해외 종목 설정
+│   ├── stocks.yaml          # 기본 국내 종목 설정 (Git 포함)
+│   ├── foreign_stocks.yaml  # 기본 해외 종목 설정 (Git 포함)
+│   └── local/               # 로컬 전용 설정 (Git 제외)
+│       ├── stocks.yaml      # 개인 국내 종목
+│       └── foreign_stocks.yaml # 개인 해외 종목
 ├── collectors/
 │   ├── naver_finance.py     # 네이버 금융 수집기
 │   ├── dart.py              # DART 공시 수집기
