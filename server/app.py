@@ -15,6 +15,20 @@ app = FastAPI(title="주간 주식 분석 리포트")
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "..", "reports", "weekly")
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+
+class CacheStaticFiles(StaticFiles):
+    """정적 자산에 짧은 캐시 + 재검증 헤더 부여 (테마/차트 라이브러리 재방문 로드 절감)"""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=86400, must-revalidate"
+        return response
+
+
+app.mount("/static", CacheStaticFiles(directory=STATIC_DIR), name="static")
 
 
 def get_config_path(filename: str) -> str:
@@ -23,6 +37,18 @@ def get_config_path(filename: str) -> str:
     if os.path.exists(local_path):
         return local_path
     return os.path.join(CONFIG_DIR, filename)
+
+
+def html_escape(value) -> str:
+    """HTML 특수문자 이스케이프 (XSS 방지)"""
+    return (
+        str(value if value is not None else "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 # 진행률 추적
 analysis_progress = {
@@ -85,8 +111,10 @@ async def root():
     stock_config = load_stock_config()
     
     # 종목 태그 생성
-    domestic_tags = " ".join([f'<span class="tag">{s["name"]}</span>' for s in stock_config["domestic"]])
-    foreign_tags = " ".join([f'<span class="tag">{s["name"]}</span>' for s in stock_config["foreign"]])
+    domestic_tags = " ".join([f'<span class="tag">{html_escape(s.get("name", ""))}</span>' for s in stock_config["domestic"]])
+    foreign_tags = " ".join([f'<span class="tag">{html_escape(s.get("name", ""))}</span>' for s in stock_config["foreign"]])
+
+    from server.theme import THEME_INIT_SCRIPT, THEME_TOGGLE_BTN, THEME_TOGGLE_SCRIPT
 
     html = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -94,53 +122,38 @@ async def root():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>주간 주식 분석 리포트</title>
+    <link rel="stylesheet" href="/static/theme.css">
+    {THEME_INIT_SCRIPT}
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Segoe UI', -apple-system, sans-serif; background: #f5f7fa; color: #333; }}
-        .container {{ max-width: 800px; margin: 0 auto; padding: 20px; }}
-        
-        header {{ background: linear-gradient(135deg, #1a237e, #0d47a1); color: white; padding: 30px; border-radius: 12px; margin-bottom: 20px; text-align: center; }}
-        header h1 {{ font-size: 28px; margin-bottom: 8px; }}
-        header p {{ opacity: 0.8; }}
-
-        .floating-action {{ position: fixed; top: 20px; right: 20px; z-index: 1000; display: flex; gap: 8px; }}
-        .btn {{ padding: 10px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; text-decoration: none; border: none; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }}
-        .btn-all {{ background: #43a047; color: white; }}
-        .btn-all:hover {{ background: #388e3c; }}
-        .btn-domestic {{ background: white; color: #1565c0; }}
-        .btn-domestic:hover {{ background: #e3f2fd; }}
-        .btn-foreign {{ background: white; color: #7b1fa2; }}
-        .btn-foreign:hover {{ background: #f3e5f5; }}
-
-        .info-bar {{ background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }}
+        .container {{ max-width: 800px; }}
         .stock-section {{ margin-bottom: 15px; }}
         .stock-section:last-of-type {{ margin-bottom: 0; }}
-        .stock-section h3 {{ font-size: 14px; margin-bottom: 10px; color: #1a237e; }}
+        .stock-section h3 {{ font-size: 14px; margin-bottom: 10px; color: var(--primary); }}
         .stock-tags {{ display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }}
-        .tag {{ background: #f5f7fa; padding: 4px 10px; border-radius: 15px; font-size: 12px; border: 1px solid #e0e0e0; }}
-
+        .tag {{ background: var(--surface-subtle); padding: 4px 10px; border-radius: 15px; font-size: 12px; border: 1px solid var(--border); color: var(--text); }}
         .report-list {{ list-style: none; }}
-        .report-item {{ background: white; border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: transform 0.2s; }}
+        .report-item {{ background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: var(--shadow-sm); transition: transform 0.2s ease, box-shadow 0.2s ease; }}
         .report-item:hover {{ transform: translateX(4px); }}
-        .report-item a {{ text-decoration: none; color: #1a237e; font-size: 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }}
-        .report-item a:hover {{ color: #0d47a1; }}
+        .report-item a {{ text-decoration: none; color: var(--primary); font-size: 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }}
+        .report-item a:hover {{ color: var(--primary-hover); }}
         .report-info {{ display: flex; flex-direction: column; gap: 4px; }}
-        .report-date {{ font-size: 16px; color: #1a237e; }}
-        .report-label {{ font-size: 14px; color: #666; font-weight: 400; }}
-        .report-item .arrow {{ font-size: 20px; color: #ccc; }}
-        .no-reports {{ text-align: center; padding: 60px; color: #999; }}
+        .report-date {{ font-size: 16px; color: var(--primary); }}
+        .report-label {{ font-size: 14px; color: var(--text-secondary); font-weight: 400; }}
+        .report-item .arrow {{ font-size: 20px; color: var(--text-faint); }}
+        .no-reports {{ text-align: center; padding: 60px; color: var(--text-faint); }}
     </style>
 </head>
 <body>
     <div class="floating-action">
-        <a href="/run-analysis?market=all" class="btn btn-all">전체 분석</a>
-        <a href="/run-analysis?market=domestic" class="btn btn-domestic">국내</a>
-        <a href="/run-analysis?market=foreign" class="btn btn-foreign">해외</a>
-        <a href="/dashboard" class="btn btn-domestic">종목 관리</a>
+        <a href="/run-analysis?market=all" class="btn btn-green">전체 분석</a>
+        <a href="/run-analysis?market=domestic" class="btn btn-blue">국내</a>
+        <a href="/run-analysis?market=foreign" class="btn btn-purple">해외</a>
+        <a href="/dashboard" class="btn btn-blue">종목 관리</a>
     </div>
+    {THEME_TOGGLE_BTN}
 
     <div class="container">
-        <header>
+        <header class="brand">
             <h1>주간 주식 분석 리포트</h1>
         </header>
 
@@ -173,9 +186,9 @@ async def root():
             
             html += f"""
             <li class="report-item">
-                <a href="/reports/{d}/index.html">
+                <a href="/reports/{html_escape(d)}/index.html">
                     <div class="report-info">
-                        <span class="report-date">📊 {year} {period}</span>
+                        <span class="report-date">📊 {html_escape(year)} {html_escape(period)}</span>
                         <span class="report-label">주간 리포트</span>
                     </div>
                     <span class="arrow">→</span>
@@ -187,6 +200,7 @@ async def root():
     html += f"""
         </ul>
     </div>
+    {THEME_TOGGLE_SCRIPT}
 </body>
 </html>"""
     return html
@@ -243,7 +257,11 @@ async def run_analysis_endpoint(
 ):
     """수동 분석 실행 (진행률 표시 페이지)"""
     from scripts.run_analysis import run_analysis, load_config
-    
+
+    # 이미 실행 중이면 새로 시작하지 않고 진행 상황 페이지 재사용
+    if analysis_progress["is_running"]:
+        return HTMLResponse(_progress_page(market, False))
+
     # 진행률 초기화
     analysis_progress["is_running"] = True
     analysis_progress["status"] = "running"
@@ -285,39 +303,57 @@ async def run_analysis_endpoint(
     # 백그라운드에서 분석 실행
     asyncio.create_task(run_background())
     
+    # 진행률 표시 페이지 반환
+    return HTMLResponse(_progress_page(market, with_dart))
+
+
+def _progress_page(market: str, with_dart: bool) -> str:
+    """분석 진행률 표시 페이지 생성"""
     market_label = {"all": "전체", "domestic": "국내", "foreign": "해외"}[market]
     dart_text = " (DART 포함)" if with_dart else ""
-    
-    # 진행률 표시 페이지 반환
     progress_page = """<!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <title>분석 진행 중...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/theme.css">
+    <script>
+    (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('stockpilot-theme'); } catch (e) {}
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light'));
+    })();
+    </script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f5f7fa; padding: 50px; text-align: center; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
-        h1 { color: #1a237e; margin-bottom: 20px; }
+        body { padding: 50px; text-align: center; }
+        .container { max-width: 600px; margin: 0 auto; background: var(--surface); padding: 40px; border-radius: 12px; box-shadow: var(--shadow-md); }
+        h1 { color: var(--primary); margin-bottom: 20px; }
+        .stock-name { font-size: 24px; color: var(--primary); font-weight: 600; margin: 10px 0; }
         .progress-bar { width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden; margin: 20px 0; }
-        .progress-fill { height: 100%; background: linear-gradient(90deg, #1a237e, #0d47a1); transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; }
-        .status { margin: 20px 0; color: #666; }
-        .stock-name { font-size: 24px; color: #1a237e; font-weight: 600; margin: 10px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #1a237e, #0d47a1); transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; min-width: 0; }
+        .status { margin: 20px 0; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); animation: sp-pulse 1.6s ease-in-out infinite; }
         .complete { display: none; }
-        .btn { display: inline-block; padding: 12px 24px; background: #1a237e; color: white; text-decoration: none; border-radius: 8px; margin-top: 20px; }
     </style>
 </head>
 <body>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
     <div class="container">
         <h1>MARKET_LABEL 종목 분석DART_TEXT</h1>
         <div class="stock-name" id="stock-name">준비 중...</div>
         <div class="progress-bar">
             <div class="progress-fill" id="progress-fill" style="width: 0%">0%</div>
         </div>
-        <div class="status" id="status">분석을 시작합니다...</div>
+        <div class="status" id="status-row" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status">분석을 시작합니다...</span>
+        </div>
         
         <div class="complete" id="complete">
-            <p style="font-size: 18px; color: #43a047;">분석 완료!</p>
-            <a href="/" class="btn">메인으로 돌아가기</a>
+            <p style="font-size: 18px; color: var(--success);">분석 완료!</p>
+            <a href="/" class="btn btn-primary">메인으로 돌아가기</a>
         </div>
     </div>
     
@@ -341,6 +377,8 @@ async def run_analysis_endpoint(
             if (data.status === 'completed' || data.status === 'error') {
                 completed = true;
                 if (eventSource) eventSource.close();
+                var dot = document.querySelector('#status-row .status-dot');
+                if (dot) dot.style.display = 'none';
                 if (data.status === 'completed') {
                     document.getElementById('complete').style.display = 'block';
                     document.getElementById('stock-name').textContent = '분석 완료!';
@@ -348,7 +386,7 @@ async def run_analysis_endpoint(
                     document.getElementById('progress-fill').textContent = '100%';
                 } else {
                     document.getElementById('status').textContent = '오류: ' + data.message;
-                    document.getElementById('status').style.color = '#e53935';
+                    document.getElementById('status').style.color = 'var(--danger)';
                 }
             }
         }
@@ -410,12 +448,22 @@ async def run_analysis_endpoint(
             }
         }, 3000);
     </script>
+    <script>
+    (function () {
+        var btn = document.getElementById('theme-toggle');
+        if (btn) {
+            btn.addEventListener('click', function () {
+                var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                try { localStorage.setItem('stockpilot-theme', next); } catch (e) {}
+            });
+        }
+    })();
+    </script>
 </body>
 </html>"""
-    
-    progress_page = progress_page.replace("MARKET_LABEL", market_label).replace("DART_TEXT", dart_text)
-    
-    return HTMLResponse(progress_page)
+
+    return progress_page.replace("MARKET_LABEL", market_label).replace("DART_TEXT", dart_text)
 
 
 @app.get("/api/run")

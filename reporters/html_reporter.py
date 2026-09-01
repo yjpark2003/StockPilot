@@ -17,87 +17,61 @@ class HtmlReporter:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>주간 주식 분석 리포트 - {{ date }}</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="/static/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/theme.css">
+    <script>
+    (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('stockpilot-theme'); } catch (e) {}
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light'));
+    })();
+    </script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #f5f7fa; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        
-        header { background: linear-gradient(135deg, #1a237e, #0d47a1); color: white; padding: 30px; border-radius: 12px; margin-bottom: 20px; text-align: center; }
-        header h1 { font-size: 28px; margin-bottom: 8px; }
-        header p { opacity: 0.9; font-size: 14px; }
+        .container { max-width: 1200px; }
 
         .floating-action { position: fixed; top: 20px; right: 20px; z-index: 1000; display: flex; gap: 8px; }
-        .btn { padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; border: none; font-size: 13px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-        .btn-primary { background: #1a237e; color: white; }
-        .btn-primary:hover { background: #0d47a1; }
-        .btn-secondary { background: white; color: #1a237e; }
-        .btn-secondary:hover { background: #e8eaf6; }
 
-        .info-bar { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .info-bar h3 { font-size: 14px; margin-bottom: 10px; }
         .stock-summary { margin-bottom: 15px; }
         .stock-summary:last-of-type { margin-bottom: 0; }
-        .stock-summary h3 { font-size: 14px; margin-bottom: 10px; color: #1a237e; }
         .stock-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-        .stock-tag { background: #f5f7fa; padding: 6px 12px; border-radius: 20px; font-size: 12px; border: 1px solid #e0e0e0; }
-        .stock-tag.positive { background: #ffebee; border-color: #ef9a9a; color: #c62828; }
-        .stock-tag.negative { background: #e3f2fd; border-color: #90caf9; color: #1565c0; }
 
         .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
-        .tab { padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; border: 2px solid #e0e0e0; background: white; }
-        .tab:hover { border-color: #1a237e; }
-        .tab.active { background: #1a237e; color: white; border-color: #1a237e; }
+        .tab { padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; border: 2px solid var(--border); background: var(--surface); font-family: inherit; font-size: 14px; color: var(--text); }
+        .tab:hover { border-color: var(--primary); }
+        .tab[aria-selected="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        .stock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
-        .stock-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); transition: transform 0.2s, box-shadow 0.2s; }
-        .stock-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-        .stock-card h2 { font-size: 20px; color: #1a237e; margin-bottom: 6px; }
-        .stock-card .code { font-size: 12px; color: #888; margin-bottom: 16px; }
+        .stock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .stock-card { background: var(--surface); border-radius: 12px; padding: 24px; box-shadow: var(--shadow); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .stock-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+        .stock-card h2 { font-size: 20px; color: var(--primary); margin-bottom: 6px; }
+        .stock-card .code { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+
         .change-rate { font-size: 24px; font-weight: 700; margin: 12px 0; }
-        .change-rate.positive { color: #e53935; }
-        .change-rate.negative { color: #1565c0; }
-        .change-rate.neutral { color: #666; }
-        .price-info { font-size: 14px; color: #666; margin-bottom: 8px; }
+        .change-rate.positive { color: var(--positive); }
+        .change-rate.negative { color: var(--negative); }
+        .change-rate.neutral { color: var(--neutral-sign); }
+        .price-info { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
 
         .chart-container { height: 120px; margin: 16px 0; }
 
-        .trend-box { background: #f8f9ff; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 13px; }
-        .trend-row { display: flex; justify-content: space-between; padding: 4px 0; }
-        .trend-label { color: #666; }
-        .trend-value { font-weight: 600; }
-        .trend-positive { color: #e53935; }
-        .trend-negative { color: #1565c0; }
+        .trend-positive { color: var(--positive); font-weight: 600; }
+        .trend-negative { color: var(--negative); font-weight: 600; }
 
-        .news-list { margin-top: 16px; }
-        .news-list h3 { font-size: 14px; color: #1a237e; margin-bottom: 10px; }
-        .news-item { padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
-        .news-item:last-child { border: none; }
-        .news-item a { color: #1565c0; text-decoration: none; font-size: 14px; line-height: 1.5; }
-        .news-item a:hover { text-decoration: underline; }
-        .news-time { font-size: 12px; color: #999; margin-top: 4px; }
-        .news-source { background: #e8eaf6; color: #1a237e; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .news-list { margin-top: 16px; margin-bottom: 12px; }
 
-        .key-points { background: #f8f9ff; padding: 16px; border-radius: 8px; margin-top: 16px; }
-        .key-points h3 { font-size: 14px; color: #1a237e; margin-bottom: 10px; }
-        .key-points ul { list-style: none; }
-        .key-points li { font-size: 13px; padding: 4px 0; padding-left: 16px; position: relative; }
-        .key-points li:before { content: "•"; position: absolute; left: 0; color: #1a237e; }
+        .btn-detail { display: inline-block; margin-top: 12px; padding: 10px 20px; background: var(--primary); color: var(--on-primary); text-decoration: none; border-radius: 8px; font-size: 14px; transition: background-color 0.2s ease; }
+        .btn-detail:hover { background: var(--primary-hover); color: var(--on-primary); }
 
-        .btn-detail { display: inline-block; margin-top: 16px; padding: 10px 20px; background: #1a237e; color: white; text-decoration: none; border-radius: 8px; font-size: 14px; transition: background 0.2s; }
-        .btn-detail:hover { background: #0d47a1; }
-
-        .market-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 8px; }
-        .badge-kospi { background: #e3f2fd; color: #1565c0; }
-        .badge-nasdaq { background: #f3e5f5; color: #7b1fa2; }
-        .ticker-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 8px; background: #e8f5e9; color: #2e7d32; }
-
-        footer { text-align: center; padding: 30px; color: #999; font-size: 13px; }
+        .market-badge, .ticker-badge { vertical-align: middle; }
     </style>
 </head>
 <body>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
     <div class="floating-action">
         <a href="/api/run" class="btn btn-primary">전체 분석 실행</a>
         <a href="/api/run?with_dart=true" class="btn btn-secondary">DART 포함</a>
@@ -105,7 +79,7 @@ class HtmlReporter:
     </div>
 
     <div class="container">
-        <header>
+        <header class="brand">
             <h1>{{ date }} 주간 리포트</h1>
             <p>자동 분석 결과 | domestic: {{ domestic_stocks|length }}종목, foreign: {{ foreign_stocks|length }}종목</p>
         </header>
@@ -115,7 +89,7 @@ class HtmlReporter:
                 <h3>📋 국내 종목</h3>
                 <div class="stock-tags">
                     {% for stock in domestic_stocks %}
-                    <span class="stock-tag {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
+                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
                         {{ stock.name }} {{ '%+.1f'|format(stock.price.change_rate) }}%
                     </span>
                     {% endfor %}
@@ -126,7 +100,7 @@ class HtmlReporter:
                 <h3>🌍 해외 종목</h3>
                 <div class="stock-tags">
                     {% for stock in foreign_stocks %}
-                    <span class="stock-tag {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
+                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
                         {{ stock.name }} {{ '%+.1f'|format(stock.price.change_rate) }}%
                     </span>
                     {% endfor %}
@@ -134,18 +108,18 @@ class HtmlReporter:
             </div>
         </div>
 
-        <div class="tabs">
-            <div class="tab active" onclick="showTab('domestic')">🇰🇷 국내</div>
-            <div class="tab" onclick="showTab('foreign')">🌍 해외</div>
+        <div class="tabs" role="tablist" aria-label="시장 선택">
+            <button type="button" class="tab active" role="tab" aria-selected="true" aria-controls="domestic" id="tab-domestic" onclick="showTab('domestic')">🇰🇷 국내</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="foreign" id="tab-foreign" onclick="showTab('foreign')">🌍 해외</button>
         </div>
 
-        <div id="domestic" class="tab-content active">
+        <div id="domestic" class="tab-content active" role="tabpanel" aria-labelledby="tab-domestic">
             <div class="stock-grid">
             {% for stock in domestic_stocks %}
-                <div class="stock-card">
-                    <h2>{{ stock.name }} <span class="ticker-badge">{{ stock.code }}</span> <span class="market-badge badge-kospi">{{ stock.market }}</span></h2>
+                <div class="stock-card motion-enter" style="--enter-delay: {{ (loop.index0 * 0.05)|round(2) }}s">
+                    <h2>{{ stock.name }} <span class="badge badge-ticker">{{ stock.code }}</span> <span class="badge badge-kospi">{{ stock.market }}</span></h2>
 
-                    <div class="change-rate {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }}">
+                    <div class="change-rate {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }} rate-anim" data-rate="{{ stock.price.change_rate }}">
                         {{ '%+.2f'|format(stock.price.change_rate) }}%
                     </div>
                     <div class="price-info">
@@ -206,7 +180,7 @@ class HtmlReporter:
                         {% endfor %}
                     </div>
 
-                    <div class="key-points">
+                    <div class="key-points callout">
                         <h3>주목 포인트</h3>
                         <ul>
                         {% for point in stock.key_points %}
@@ -221,13 +195,13 @@ class HtmlReporter:
             </div>
         </div>
 
-        <div id="foreign" class="tab-content">
+        <div id="foreign" class="tab-content" role="tabpanel" aria-labelledby="tab-foreign">
             <div class="stock-grid">
             {% for stock in foreign_stocks %}
-                <div class="stock-card">
-                    <h2>{{ stock.name }} <span class="ticker-badge">{{ stock.code }}</span> <span class="market-badge badge-nasdaq">{{ stock.market }}</span></h2>
+                <div class="stock-card motion-enter" style="--enter-delay: {{ (loop.index0 * 0.05)|round(2) }}s">
+                    <h2>{{ stock.name }} <span class="badge badge-ticker">{{ stock.code }}</span> <span class="badge badge-nasdaq">{{ stock.market }}</span></h2>
 
-                    <div class="change-rate {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }}">
+                    <div class="change-rate {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }} rate-anim" data-rate="{{ stock.price.change_rate }}">
                         {{ '%+.2f'|format(stock.price.change_rate) }}%
                     </div>
                     <div class="price-info">
@@ -269,7 +243,7 @@ class HtmlReporter:
                         {% endfor %}
                     </div>
 
-                    <div class="key-points">
+                    <div class="key-points callout">
                         <h3>주목 포인트</h3>
                         <ul>
                         {% for point in stock.key_points %}
@@ -291,17 +265,55 @@ class HtmlReporter:
 
     <script>
     function showTab(name) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-        document.getElementById(name).classList.add('active');
-        event.target.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); el.hidden = true; });
+        document.querySelectorAll('.tab').forEach(function(el) { el.classList.remove('active'); el.setAttribute('aria-selected', 'false'); });
+        var panel = document.getElementById(name);
+        panel.classList.add('active');
+        panel.hidden = false;
+        var activeTab = document.getElementById('tab-' + name);
+        activeTab.classList.add('active');
+        activeTab.setAttribute('aria-selected', 'true');
+        activeTab.focus();
     }
 
-    // 그래프 생성 함수
-    function createChart(canvasId, labels, data, color) {
+    // 탭 키보드 탐색 (좌/우 화살표)
+    document.querySelectorAll('.tabs').forEach(function(tablist) {
+        tablist.addEventListener('keydown', function(e) {
+            var tabs = Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]'));
+            var index = tabs.indexOf(document.activeElement);
+            if (index === -1) return;
+            var next = index;
+            if (e.key === 'ArrowRight') next = (index + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+            else return;
+            e.preventDefault();
+            showTab(['domestic', 'foreign'][next]);
+        });
+    });
+
+    // 그래프 생성 함수 (차트 라이브러리 로드 실패 시 폴백 메시지 표시)
+    window.addEventListener('load', function() {
+        if (typeof Chart === 'undefined') {
+            document.querySelectorAll('.chart-container').forEach(function(c) {
+                c.textContent = '차트를 불러오지 못했습니다. 네트워크 연결을 확인해주세요.';
+                c.style.cssText = 'display:flex;align-items:center;justify-content:center;color:#888;font-size:13px;';
+            });
+        }
+    });
+
+    function resolveCss(name) {
+        var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || '';
+    }
+    function createChart(canvasId, labels, data, colorVar) {
+        if (typeof Chart === 'undefined') return;
         const ctx = document.getElementById(canvasId);
         if (!ctx) return;
-        new Chart(ctx, {
+        try {
+            var color = resolveCss(colorVar) || '#1a237e';
+            var grid = resolveCss('--divider') || '#f0f0f0';
+            var tick = resolveCss('--text-faint') || '#999';
+            new Chart(ctx, {
             type: 'line',
             data: {
                 labels: labels,
@@ -321,28 +333,96 @@ class HtmlReporter:
                 maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
-                    x: { display: true, grid: { display: false }, ticks: { font: { size: 10 } } },
-                    y: { display: true, grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } }
+                    x: { display: true, grid: { display: false }, ticks: { font: { size: 10 }, color: tick } },
+                    y: { display: true, grid: { color: grid }, ticks: { font: { size: 10 }, color: tick } }
                 }
             }
-        });
+            });
+        } catch (e) {
+            if (ctx.parentElement) {
+                ctx.parentElement.textContent = '차트 데이터를 표시할 수 없습니다.';
+                ctx.parentElement.style.color = 'var(--text-muted)';
+                ctx.parentElement.style.fontSize = '13px';
+            }
+        }
     }
 
-    // 국내 종목 그래프
-    {% for stock in domestic_stocks %}
-    createChart('chart-domestic-{{ stock.code }}',
-        {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
-        {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
-        '#1a237e');
-    {% endfor %}
+    function destroyCharts() {
+        if (window.Chart && Chart.instances) {
+            Object.keys(Chart.instances).forEach(function (k) {
+                try { Chart.instances[k].destroy(); } catch (e) {}
+            });
+        }
+    }
 
-    // 해외 종목 그래프
-    {% for stock in foreign_stocks %}
-    createChart('chart-foreign-{{ stock.code }}',
-        {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
-        {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
-        '#7b1fa2');
-    {% endfor %}
+    function buildCharts() {
+        // 국내 종목 그래프
+        {% for stock in domestic_stocks %}
+        createChart('chart-domestic-{{ stock.code }}',
+            {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
+            {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
+            '--primary');
+        {% endfor %}
+
+        // 해외 종목 그래프
+        {% for stock in foreign_stocks %}
+        createChart('chart-foreign-{{ stock.code }}',
+            {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
+            {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
+            '--nasdaq');
+        {% endfor %}
+    }
+
+    if (typeof Chart !== 'undefined') {
+        buildCharts();
+    } else {
+        window.addEventListener('load', function () {
+            if (typeof Chart !== 'undefined') buildCharts();
+        });
+    }
+    document.addEventListener('themechange', function () {
+        destroyCharts();
+        buildCharts();
+    });
+    </script>
+    <script>
+    // 저작된 모먼트: 변동률 숫자가 목푯값까지 카운트 (prefers-reduced-motion 시 정적 유지)
+    (function () {
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduce) return;
+        var els = document.querySelectorAll('.change-rate[data-rate]');
+        els.forEach(function (el) {
+            var target = parseFloat(el.getAttribute('data-rate'));
+            if (isNaN(target)) return;
+            var neg = target < 0;
+            var abs = Math.abs(target);
+            var start = null;
+            var dur = 700;
+            function step(ts) {
+                if (!start) start = ts;
+                var p = Math.min((ts - start) / dur, 1);
+                var eased = 1 - Math.pow(1 - p, 3);
+                var cur = abs * eased;
+                el.textContent = (neg ? '-' : '+') + cur.toFixed(2) + '%';
+                if (p < 1) { requestAnimationFrame(step); }
+                else { el.textContent = (neg ? '-' : '+') + abs.toFixed(2) + '%'; }
+            }
+            requestAnimationFrame(step);
+        });
+    })();
+    </script>
+    <script>
+    (function () {
+        var btn = document.getElementById('theme-toggle');
+        if (btn) {
+            btn.addEventListener('click', function () {
+                var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                try { localStorage.setItem('stockpilot-theme', next); } catch (e) {}
+                try { document.dispatchEvent(new CustomEvent('themechange')); } catch (e) {}
+            });
+        }
+    })();
     </script>
 </body>
 </html>"""
@@ -353,46 +433,39 @@ class HtmlReporter:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ stock.name }} 주간 분석 - {{ date }}</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="/static/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/theme.css">
+    <script>
+    (function () {
+        var stored = null;
+        try { stored = localStorage.getItem('stockpilot-theme'); } catch (e) {}
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light'));
+    })();
+    </script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #f5f7fa; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
-        header { background: linear-gradient(135deg, #1a237e, #0d47a1); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
-        header h1 { font-size: 24px; }
-        header .back { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 10px; }
-        header .back:hover { color: white; }
-        .section { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-        .section h2 { font-size: 18px; color: #1a237e; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #e8eaf6; }
-        .price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
-        .price-item { text-align: center; padding: 16px; background: #f8f9ff; border-radius: 8px; }
-        .price-item .label { font-size: 13px; color: #888; margin-bottom: 6px; }
-        .price-item .value { font-size: 20px; font-weight: 700; }
+        .container { max-width: 900px; }
+        header.brand .back { color: var(--on-primary-sub); }
+        header.brand .back:hover { color: var(--on-primary); }
 
         .chart-container { height: 200px; margin: 16px 0; }
 
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #f0f0f0; }
-        th { background: #f8f9ff; font-size: 13px; color: #666; }
-        td { font-size: 14px; }
-        a { color: #1565c0; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-
         .trend-table { width: 100%; }
         .trend-table td { padding: 10px; }
-        .trend-positive { color: #e53935; font-weight: 600; }
-        .trend-negative { color: #1565c0; font-weight: 600; }
 
-        .key-points { background: #f8f9ff; padding: 20px; border-radius: 8px; }
-        .key-points h3 { color: #1a237e; margin-bottom: 12px; }
+        .key-points { padding: 20px; border-radius: 8px; }
         .key-points ul { list-style: none; }
-        .key-points li { padding: 6px 0; padding-left: 20px; position: relative; font-size: 14px; }
-        .key-points li:before { content: "▸"; position: absolute; left: 0; color: #1a237e; }
+        .key-points li { padding: 6px 0; padding-left: 20px; position: relative; }
+        .key-points li::before { content: "▸"; position: absolute; left: 0; color: var(--primary); }
+
+        .news-row { padding: 12px 0; border-bottom: 1px solid var(--divider); }
+        .news-row:last-child { border: none; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
+    <div class="container motion-settle">
+        <header class="brand">
             <a href="index.html" class="back">← 목록으로</a>
             <h1>{{ stock.name }} ({{ stock.code }})</h1>
             <p>{{ date }} 주간 분석 리포트 | {{ stock.currency }}</p>
@@ -407,7 +480,7 @@ class HtmlReporter:
                 </div>
                 <div class="price-item">
                     <div class="label">주간 변동률</div>
-                    <div class="value" style="color: {{ '#e53935' if stock.price.change_rate > 0 else '#1565c0' }}">{{ '%+.2f'|format(stock.price.change_rate) }}%</div>
+                    <div class="value {{ 'pos-strong' if stock.price.change_rate > 0 else 'neg-strong' }} rate-anim" data-rate="{{ stock.price.change_rate }}">{{ '%+.2f'|format(stock.price.change_rate) }}%</div>
                 </div>
                 <div class="price-item">
                     <div class="label">주간 시작가</div>
@@ -463,7 +536,7 @@ class HtmlReporter:
                 {% endfor %}
                 </tbody>
             </table>
-            <div style="margin-top: 12px; font-size: 13px; color: #666;">
+            <div class="muted" style="margin-top: 12px; font-size: 13px;">
                 외국인 보유율: <strong>{{ stock.investor_trend.foreign_ratio }}</strong>
                 {% if stock.investor_trend.foreign_ratio_change != 0 %}
                     <span class="{{ 'trend-positive' if stock.investor_trend.foreign_ratio_change > 0 else 'trend-negative' }}">
@@ -501,9 +574,9 @@ class HtmlReporter:
         <div class="section">
             <h2>주요 뉴스</h2>
             {% for news in stock.news %}
-            <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+            <div class="news-row">
                 <a href="{{ news.link }}" target="_blank">{{ news.title }}</a>
-                <div style="font-size:12px; color:#999; margin-top:4px;">{{ news.time }}</div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">{{ news.time }}</div>
             </div>
             {% endfor %}
         </div>
@@ -512,9 +585,9 @@ class HtmlReporter:
         <div class="section">
             <h2>최근 공시</h2>
             {% for disc in stock.disclosures %}
-            <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+            <div class="news-row">
                 <a href="{{ disc.link }}" target="_blank">{{ disc.title }}</a>
-                <div style="font-size:12px; color:#999; margin-top:4px;">{{ disc.date }} | {{ disc.type }}</div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">{{ disc.date }} | {{ disc.type }}</div>
             </div>
             {% endfor %}
         </div>
@@ -533,7 +606,7 @@ class HtmlReporter:
         </div>
 
         <div class="section">
-            <div class="key-points">
+            <div class="key-points callout">
                 <h3>앞으로 1주간 주목 포인트</h3>
                 <ul>
                 {% for point in stock.key_points %}
@@ -545,34 +618,103 @@ class HtmlReporter:
     </div>
 
     <script>
-    const ctx = document.getElementById('detail-chart');
-    if (ctx) {
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
-                datasets: [{
-                    data: {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
-                    borderColor: '#1a237e',
-                    backgroundColor: '#1a237e20',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { display: false } },
-                    y: { grid: { color: '#f0f0f0' } }
+    function resolveCss(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '';
+    }
+    function buildDetailChart() {
+        var detailCtx = document.getElementById('detail-chart');
+        if (!detailCtx) return;
+        if (detailCtx.__chart) { try { detailCtx.__chart.destroy(); } catch (e) {} }
+        try {
+            var dColor = resolveCss('--primary') || '#1a237e';
+            var dGrid = resolveCss('--divider') || '#f0f0f0';
+            var dTick = resolveCss('--text-faint') || '#999';
+            detailCtx.__chart = new Chart(detailCtx, {
+                type: 'line',
+                data: {
+                    labels: {{ stock.price.weekly_data | map(attribute='date') | list | tojson }},
+                    datasets: [{
+                        data: {{ stock.price.weekly_data | map(attribute='close') | list | tojson }},
+                        borderColor: dColor,
+                        backgroundColor: dColor + '20',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: dTick } },
+                        y: { grid: { color: dGrid }, ticks: { color: dTick } }
+                    }
                 }
+            });
+        } catch (e) {
+            if (detailCtx.parentElement) {
+                detailCtx.parentElement.textContent = '차트 데이터를 표시할 수 없습니다.';
+                detailCtx.parentElement.style.color = 'var(--text-muted)';
+                detailCtx.parentElement.style.fontSize = '14px';
             }
+        }
+    }
+    function showDetailChartError() {
+        var detailCtx = document.getElementById('detail-chart');
+        if (detailCtx && detailCtx.parentElement) {
+            detailCtx.parentElement.textContent = '차트를 불러오지 못했습니다. 네트워크 연결을 확인해주세요.';
+            detailCtx.parentElement.style.cssText = 'display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;';
+        }
+    }
+    if (typeof Chart !== 'undefined') {
+        buildDetailChart();
+    } else {
+        window.addEventListener('load', function () {
+            if (typeof Chart !== 'undefined') buildDetailChart();
+            else showDetailChartError();
         });
     }
+    document.addEventListener('themechange', function () { buildDetailChart(); });
+    </script>
+    <script>
+    // 저작된 모먼트 연속: 주간 변동률 카운트 (prefers-reduced-motion 시 정적 유지)
+    (function () {
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduce) return;
+        var el = document.querySelector('[data-rate]');
+        if (!el) return;
+        var target = parseFloat(el.getAttribute('data-rate'));
+        if (isNaN(target)) return;
+        var neg = target < 0;
+        var abs = Math.abs(target);
+        var start = null;
+        var dur = 700;
+        function step(ts) {
+            if (!start) start = ts;
+            var p = Math.min((ts - start) / dur, 1);
+            var eased = 1 - Math.pow(1 - p, 3);
+            el.textContent = (neg ? '-' : '+') + (abs * eased).toFixed(2) + '%';
+            if (p < 1) { requestAnimationFrame(step); }
+            else { el.textContent = (neg ? '-' : '+') + abs.toFixed(2) + '%'; }
+        }
+        requestAnimationFrame(step);
+    })();
+    </script>
+    <script>
+    (function () {
+        var btn = document.getElementById('theme-toggle');
+        if (btn) {
+            btn.addEventListener('click', function () {
+                var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                try { localStorage.setItem('stockpilot-theme', next); } catch (e) {}
+                try { document.dispatchEvent(new CustomEvent('themechange')); } catch (e) {}
+            });
+        }
+    })();
     </script>
 </body>
 </html>"""

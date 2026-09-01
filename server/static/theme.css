@@ -1,0 +1,422 @@
+/* ============================================================================
+   StockPilot · 공용 테마 토큰 + 공용 컴포넌트 stylesheet
+   하나의 진실 소스: 모든 서버 페이지와 리포트가 여기의 CSS 변수를 참조한다.
+   라이트/다크 테마는 [data-theme] 속성으로 전환한다.
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   1) Primitive tokens — 원색 팔레트 (라이트 기본값은 기존 표시색을 보존)
+   ---------------------------------------------------------------------------- */
+:root {
+  /* Brand · indigo */
+  --indigo-50:   #e8eaf6;
+  --indigo-100:  #c5cae9;
+  --indigo-200:  #9fa8da;
+  --indigo-300:  #7986cb;
+  --indigo-400:  #5c6bc0;
+  --indigo-500:  #3f51b5;
+  --indigo-600:  #3949ab;
+  --indigo-700:  #303f9f;
+  --indigo-800:  #0d47a1;   /* gradient 끝 (어두운 indigo) */
+  --indigo-900:  #1a237e;   /* primary navy */
+  --indigo-950:  #0d1440;
+
+  /* Status · 한국 증시 관례 유지 (상승=빨강, 하락=파랑) */
+  --red-600:  #e53935;  /* 상승 / 위험 */
+  --red-800:  #c62828;
+  --red-100:  #ffebee;  /* 상승 chip 배경 */
+  --red-200:  #ef9a9a;  /* 상승 chip 테두리 */
+  --blue-600: #1565c0;  /* 하락 / 링크 / KOSPI */
+  --blue-100: #e3f2fd;
+  --blue-200: #90caf9;
+  --purple-600: #7b1fa2; /* NASDAQ / 해외 차트 */
+  --purple-100: #f3e5f5;
+  --green-800: #2e7d32;  /* 티커 배지 */
+  --green-100: #e8f5e9;
+  --green-600: #43a047;  /* 성공 */
+  --green-700: #388e3c;
+
+  /* Grayscale */
+  --neutral-50:   #f5f7fa;  /* canvas */
+  --neutral-100:  #f8f9ff;  /* trend / key-points 배경 */
+  --neutral-200:  #f0f0f0;  /* divider */
+  --neutral-300:  #e0e0e0;  /* border */
+  --neutral-400:  #ddd;     /* input border */
+  --neutral-500:  #999;     /* footer / time */
+  --neutral-600:  #888;     /* code / muted */
+  --neutral-700:  #666;     /* secondary text */
+  --neutral-900:  #333;     /* body text */
+
+  /* White / dark canvas primitives */
+  --white: #ffffff;
+  --dark-canvas:   #0d1117;  /* 다크 캔버스 (indigo pink 기반) */
+  --dark-canvas-hi:#161b22;
+  --dark-surface:  #1b2230;
+  --dark-border:   #2d3550;
+}
+
+/* ----------------------------------------------------------------------------
+   2) Semantic tokens — 테마(라이트/다크)별로 의미 역할을 재매핑
+   ---------------------------------------------------------------------------- */
+:root,
+[data-theme="light"] {
+  --bg:            var(--neutral-50);
+  --surface:       var(--white);
+  --surface-subtle:var(--neutral-100);
+  --surface-hover: var(--indigo-50);
+  --text:          var(--neutral-900);
+  --text-secondary:var(--neutral-700);
+  --text-muted:    var(--neutral-600);
+  --text-faint:    var(--neutral-500);
+
+  --primary:       var(--indigo-900);
+  --primary-hover: var(--indigo-800);
+  --on-primary:    var(--white);
+  --on-primary-sub:#e0e6ff;
+
+  --link:          var(--blue-600);
+  --focus:         var(--blue-600);
+
+  --border:        var(--neutral-300);
+  --divider:       var(--neutral-200);
+  --input-border:  var(--neutral-400);
+
+  --positive:      var(--red-600);   /* 상승 (KR 관례) */
+  --positive-strong: var(--red-800);
+  --positive-bg:   var(--red-100);
+  --positive-border: var(--red-200);
+  --negative:      var(--blue-600);  /* 하락 (KR 관례) */
+  --negative-bg:   var(--blue-100);
+  --negative-border: var(--blue-200);
+  --neutral-sign:  var(--neutral-700);
+
+  --success:       var(--green-600);
+  --success-strong:var(--green-700);
+  --success-bg:    var(--green-100);
+  --success-text:  var(--green-800);
+  --danger:        var(--red-600);
+  --danger-strong: var(--red-800);
+  --kospi:         var(--blue-600);
+  --kospi-bg:      var(--blue-100);
+  --nasdaq:        var(--purple-600);
+  --nasdaq-bg:     var(--purple-100);
+  --ticker:        var(--green-800);
+  --ticker-bg:     var(--green-100);
+
+  --shadow-sm: 0 2px 8px rgba(26, 35, 126, 0.06);
+  --shadow:    0 2px 12px rgba(26, 35, 126, 0.08);
+  --shadow-lg: 0 8px 24px rgba(26, 35, 126, 0.12);
+  --btn-shadow:0 2px 8px rgba(0, 0, 0, 0.15);
+  --overlay:   rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] {
+  --bg:            var(--dark-canvas);
+  --surface:       var(--dark-surface);
+  --surface-subtle:var(--dark-canvas-hi);
+  --surface-hover: #252e44;
+  --text:          #e6e8ef;
+  --text-secondary:#a8b0c2;
+  --text-muted:    #8891a6;
+  --text-faint:    #6b748a;
+
+  --primary:       #3f51b5;
+  --primary-hover: #5c6bc0;
+  --on-primary:    #ffffff;
+  --on-primary-sub:#c6d0ff;
+
+  --link:          #7fb2ff;
+  --focus:         #85b0ff;
+
+  --border:        var(--dark-border);
+  --divider:       #262e44;
+  --input-border:  #3a4160;
+
+  --positive:      #ff6b6b;   /* 다크용 상승 (KR 관례 유지) */
+  --positive-strong:#ff8787;
+  --positive-bg:   rgba(255, 107, 107, 0.14);
+  --positive-border: rgba(255, 107, 107, 0.35);
+  --negative:      #6ea8ff;   /* 다크용 하락 */
+  --negative-bg:   rgba(110, 168, 255, 0.14);
+  --negative-border: rgba(110, 168, 255, 0.35);
+  --neutral-sign:  #a8b0c2;
+
+  --success:       #66bb6a;
+  --success-strong:#81c784;
+  --success-bg:    rgba(102, 187, 106, 0.14);
+  --success-text:  #a5d6a7;
+  --danger:        #ff6b6b;
+  --danger-strong: #ff8787;
+  --kospi:         #7fb2ff;
+  --kospi-bg:      rgba(127, 178, 255, 0.16);
+  --nasdaq:        #c792ea;
+  --nasdaq-bg:     rgba(199, 146, 234, 0.16);
+  --ticker:        #a5d6a7;
+  --ticker-bg:     rgba(165, 214, 167, 0.14);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow:    0 2px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --btn-shadow:0 2px 8px rgba(0, 0, 0, 0.4);
+  --overlay:   rgba(0, 0, 0, 0.6);
+}
+
+/* ----------------------------------------------------------------------------
+   3) Base —— 모든 페이지 공통
+   ---------------------------------------------------------------------------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html[data-theme] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 공용 포커스 링 —— 접근성 (모든 대화형 요소) */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 접근성 · 사용자가 동작 줄이기 선호 시 모든 전환 비활성 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* tabular numbers for numeric data */
+.num { font-variant-numeric: tabular-nums; }
+
+/* ----------------------------------------------------------------------------
+   4) 공용 컴포넌트 —— 3개 이상 템플릿에서 재사용되는 레시피
+   ---------------------------------------------------------------------------- */
+
+/* Container */
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+/* Header band */
+header.brand {
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: var(--on-primary);
+  padding: 30px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+header.brand h1 { font-size: 28px; margin-bottom: 8px; color: var(--on-primary); }
+header.brand p  { opacity: 0.9; font-size: 14px; color: var(--on-primary); }
+header.brand .back { color: var(--on-primary-sub); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 10px; }
+header.brand .back:hover { color: var(--on-primary); }
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, transform 0.12s ease;
+  border: none;
+  font-size: 13px;
+  font-family: inherit;
+  text-decoration: none;
+  box-shadow: var(--btn-shadow);
+  line-height: 1.2;
+  color: var(--text);
+  will-change: transform;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--primary); color: var(--on-primary); }
+.btn-primary:hover { background: var(--primary-hover); color: var(--on-primary); }
+.btn-secondary { background: var(--surface); color: var(--primary); }
+.btn-secondary:hover { background: var(--surface-hover); color: var(--primary); }
+.btn-green { background: var(--success); color: #fff; }
+.btn-green:hover { background: var(--success-strong); color: #fff; }
+.btn-blue { background: var(--surface); color: var(--kospi); }
+.btn-blue:hover { background: var(--kospi-bg); color: var(--kospi); }
+.btn-purple { background: var(--surface); color: var(--nasdaq); }
+.btn-purple:hover { background: var(--nasdaq-bg); color: var(--nasdaq); }
+.btn-danger { background: var(--danger); color: #fff; padding: 6px 12px; font-size: 12px; }
+.btn-danger:hover { background: var(--danger-strong); color: #fff; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+.card h2 { color: var(--primary); }
+
+/* Info bar */
+.info-bar { background: var(--surface); padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: var(--shadow); }
+.info-bar h3 { color: var(--primary); }
+
+/* Badges & chips */
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+.badge-kospi  { background: var(--kospi-bg);  color: var(--kospi); }
+.badge-nasdaq { background: var(--nasdaq-bg); color: var(--nasdaq); }
+.badge-ticker { background: var(--ticker-bg); color: var(--ticker); }
+
+.chip {
+  background: var(--surface-subtle);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.chip.positive { background: var(--positive-bg); border-color: var(--positive-border); color: var(--positive-strong); }
+.chip.negative { background: var(--negative-bg); border-color: var(--negative-border); color: var(--negative); }
+
+/* Focus / key highlight blocks */
+.callout {
+  background: var(--surface-subtle);
+  padding: 16px;
+  border-radius: 8px;
+}
+.callout h3 { color: var(--primary); }
+.callout ul { list-style: none; }
+.callout li { padding: 4px 0; padding-left: 16px; position: relative; }
+.callout li::before { content: "•"; position: absolute; left: 0; color: var(--primary); }
+
+/* Trend rows */
+.trend-box { background: var(--surface-subtle); padding: 12px; border-radius: 8px; font-size: 13px; }
+.trend-row { display: flex; justify-content: space-between; padding: 4px 0; }
+.trend-label { color: var(--text-secondary); }
+.trend-value { font-weight: 600; }
+
+/* Positive/negative text semantics (KR 관례 유지) */
+.pos { color: var(--positive); }
+.neg { color: var(--negative); }
+.pos-strong { color: var(--positive-strong); font-weight: 600; }
+.neg-strong { color: var(--negative); font-weight: 600; }
+.neutral-sign { color: var(--neutral-sign); }
+
+/* News */
+.news-list h3 { color: var(--primary); }
+.news-item { padding: 10px 0; border-bottom: 1px solid var(--divider); }
+.news-item:last-child { border: none; }
+.news-item a { color: var(--link); font-size: 14px; line-height: 1.5; }
+.news-time { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+.news-source { background: var(--surface-hover); color: var(--primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+
+/* Sections & price grids (used by reports + dashboard) */
+.section { background: var(--surface); border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); }
+.section h2 { font-size: 18px; color: var(--primary); margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid var(--surface-hover); }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--divider); }
+.section-title { font-size: 20px; color: var(--primary); font-weight: 600; }
+.section-count { color: var(--text-secondary); font-size: 14px; }
+
+.price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+.price-item { text-align: center; padding: 16px; background: var(--surface-subtle); border-radius: 8px; }
+.price-item .label { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+.price-item .value { font-size: 20px; font-weight: 700; color: var(--text); }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--divider); }
+th { background: var(--surface-subtle); font-size: 13px; color: var(--text-secondary); }
+td { font-size: 14px; color: var(--text); }
+
+/* Footer */
+footer { text-align: center; padding: 30px; color: var(--text-faint); font-size: 13px; }
+
+/* Empty / muted */
+.muted { color: var(--text-faint); }
+.empty-state { text-align: center; padding: 40px; color: var(--text-faint); }
+
+/* ----------------------------------------------------------------------------
+   5) 테마 전환 머신 (server 페이지용) —— localStorage + prefers-color-scheme
+   ---------------------------------------------------------------------------- */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1500;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.theme-toggle:active { transform: scale(0.9) rotate(-90deg); }
+
+/* ----------------------------------------------------------------------------
+   6) Motion — 한 번의 저작된 모먼트 + 질서있는 지원 상태
+   Above the entrance choreography lives one authored focal moment: the report
+   change-rate counts toward its value and flashes its semantic color, so the
+   surface "delivers the number" instead of merely revealing it.
+   ---------------------------------------------------------------------------- */
+
+/* Press feedback for interactive cards / tokens */
+.pressable { transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease; will-change: transform; }
+.pressable:active { transform: scale(0.98); }
+
+/* Entrance — a grid/list appears as itself; cap the total wait. */
+@keyframes sp-fade-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.motion-enter {
+  opacity: 0;
+  animation: sp-fade-rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--enter-delay, 0s);
+}
+
+/* Focal moment: the change-rate lands with a count + a semantic color pulse. */
+@keyframes sp-rate-flash {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.rate-anim { animation: sp-rate-flash 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both; }
+
+/* Live "working" pulse for the analysis runner. */
+@keyframes sp-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+.live-pulse { animation: sp-pulse 1.6s ease-in-out infinite; }
+
+/* Reveal — modal/hover-layer settle. */
+@keyframes sp-settle {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.motion-settle { animation: sp-settle 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ----------------------------------------------------------------------------
+   7) Browser surfaces — text selection, caret, scrollbars from the palette
+   ---------------------------------------------------------------------------- */
+::selection { background: var(--primary); color: var(--on-primary); }
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-hover); }
+::-webkit-scrollbar-track { background: transparent; }
+}
