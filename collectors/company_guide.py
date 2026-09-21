@@ -15,16 +15,40 @@ class CompanyGuideCollector:
 
     async def _ensure_browser(self):
         if self._browser is None:
-            self._pw = await async_playwright().start()
-            self._browser = await self._pw.chromium.launch(headless=True)
-            self._context = await self._browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            )
+            if getattr(self, "_pw", None) is None:
+                self._pw = await async_playwright().start()
+            try:
+                self._browser = await self._pw.chromium.launch(headless=True)
+                self._context = await self._browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                )
+            except Exception:
+                pw = self._pw
+                self._browser = None
+                self._context = None
+                self._pw = None
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
+                raise
 
     async def close(self):
-        if self._browser:
-            await self._browser.close()
-            await self._pw.stop()
+        browser = self._browser
+        pw = getattr(self, "_pw", None)
+        self._browser = None
+        self._context = None
+        self._pw = None
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+        if pw:
+            try:
+                await pw.stop()
+            except Exception:
+                pass
 
     async def get_financial_summary(self, stock_code: str, stock_name: str) -> dict:
         """재무 요약 데이터 수집 (PER, PBR, 부채비율 등)"""
