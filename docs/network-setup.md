@@ -12,7 +12,7 @@
 ```bash
 # WSL2 터미널에서
 cd ~/work/StockPilot
-python3 main.py server
+python3 main.py server --host 0.0.0.0 --port 8000
 ```
 
 ### 2. 포트 포워딩 설정
@@ -187,7 +187,7 @@ netsh advfirewall set allprofiles state on
 curl http://localhost:8000
 
 # 서버 재시작
-python3 main.py server
+python3 main.py server --host 0.0.0.0 --port 8000
 ```
 
 ### 4. 포트 충돌
@@ -197,7 +197,7 @@ python3 main.py server
 netstat -ano | findstr :8000
 
 # 다른 포트 사용
-python3 main.py server --port 8001
+python3 main.py server --host 0.0.0.0 --port 8001
 ```
 
 ---

@@ -63,9 +63,9 @@ python3 main.py analyze --market foreign
 
 ### 2. 웹 서버 시작
 ```bash
-python3 main.py server --port 8000
+python3 main.py server --host 0.0.0.0 --port 8000
 ```
-브라우저에서 http://localhost:8000 접속
+브라우저에서 http://localhost:8000 접속 (`--host 0.0.0.0` 이면 같은 네트워크의 다른 PC에서도 접속 가능)
 
 종목 관리 대시보드는 별도 스크립트로 편리하게 실행할 수 있습니다.
 ```bash
@@ -74,6 +74,7 @@ python3 main.py server --port 8000
 ./scripts/run_dashboard.sh stop       # 중지
 ./scripts/run_dashboard.sh restart    # 재시작
 ./scripts/run_dashboard.sh --port 8001   # 포트 변경
+./scripts/run_dashboard.sh --host 0.0.0.0  # 바인드 주소 변경 (기본 0.0.0.0)
 ./scripts/run_dashboard.sh -f         # 포그라운드 실행
 ```
 대시보드 주소: http://localhost:8000/dashboard (로그: `logs/dashboard.log`)
