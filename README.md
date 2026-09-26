@@ -67,6 +67,17 @@ python3 main.py server --port 8000
 ```
 브라우저에서 http://localhost:8000 접속
 
+종목 관리 대시보드는 별도 스크립트로 편리하게 실행할 수 있습니다.
+```bash
+./scripts/run_dashboard.sh            # 백그라운드 구동 + 브라우저 자동 실행
+./scripts/run_dashboard.sh status     # 상태 확인
+./scripts/run_dashboard.sh stop       # 중지
+./scripts/run_dashboard.sh restart    # 재시작
+./scripts/run_dashboard.sh --port 8001   # 포트 변경
+./scripts/run_dashboard.sh -f         # 포그라운드 실행
+```
+대시보드 주소: http://localhost:8000/dashboard (로그: `logs/dashboard.log`)
+
 ### 3. 다른 PC에서 접속 (WSL2 사용 시)
 
 WSL2 환경에서는 포트 포워딩 설정이 필요합니다.
@@ -175,6 +186,8 @@ StockPilot/
 │   └── dashboard.py         # 종목 관리 대시보드
 ├── scripts/
 │   ├── run_analysis.py      # 분석 실행 스크립트
+│   ├── run_dashboard.sh     # 대시보드 서버 구동 스크립트
+│   ├── install_cron.sh      # cron 자동 실행 스크립트
 │   ├── portforward.ps1      # Windows 포트포워딩 (PowerShell)
 │   └── portforward.bat      # Windows 포트포워딩 (배치)
 ├── docs/

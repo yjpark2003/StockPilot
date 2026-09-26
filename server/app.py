@@ -50,6 +50,19 @@ def html_escape(value) -> str:
         .replace("'", "&#39;")
     )
 
+# 해외 주요 종목 한글명 별칭 (한글 검색 지원)
+FOREIGN_ALIASES = {
+    "애플": "AAPL", "아이폰": "AAPL",
+    "마이크로소프트": "MSFT", "ms": "MSFT",
+    "알파벳": "GOOGL", "구글": "GOOGL", "google": "GOOGL",
+    "아마존": "AMZN", "앤드로이드": "AMZN",
+    "테슬라": "TSLA", "엔비디아": "NVDA", "인텔": "INTC", "amd": "AMD",
+    "브로드컴": "AVGO", "tsmc": "TSM", "타이완반도체": "TSM",
+    "메타": "META", "페이스북": "META", "넷플릭스": "NFLX",
+    "보잉": "BA", "디즈니": "DIS", "월트디즈니": "DIS",
+    "코카콜라": "KO", "존스앤존슨": "JNJ", "시모스": "SCHD",
+}
+
 # 진행률 추적
 analysis_progress = {
     "is_running": False,
@@ -611,131 +624,119 @@ async def delete_foreign_stock(ticker: str):
 
 @app.get("/api/stocks/search")
 async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("all")):
-    """종목 검색 (yfinance 사용 + 한글명 검색)"""
+    """종목 검색 (한글명/종목코드 부분 일치 + yfinance 해외 검색)"""
+    from collectors import search_korean_stocks, find_by_code
+
     results = []
     q_upper = q.upper()
-    q_lower = q.lower()
-    
-    # 현재 등록된 종목에서 한글명/종목코드 검색
-    if market in ("all", "domestic"):
-        domestic_path = get_config_path("stocks.yaml")
-        if os.path.exists(domestic_path):
-            with open(domestic_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-            for s in config.get("stocks", []):
-                name = s.get("name", "")
-                code = s.get("code", "")
-                if q in name or q_upper == code or q_lower == code.lower():
-                    results.append({
-                        "type": "domestic",
-                        "code": code,
-                        "name": name,
-                        "market": s.get("market", "KOSPI"),
-                        "currency": "KRW"
-                    })
-    
-    if market in ("all", "foreign"):
-        foreign_path = get_config_path("foreign_stocks.yaml")
-        if os.path.exists(foreign_path):
-            with open(foreign_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-            for s in config.get("foreign_stocks", []):
-                name = s.get("name", "")
-                ticker = s.get("ticker", "")
-                if q in name or q_upper == ticker.upper():
-                    results.append({
-                        "type": "foreign",
-                        "ticker": ticker,
-                        "name": name,
-                        "market": s.get("market", "NASDAQ"),
-                        "currency": s.get("currency", "USD")
-                    })
-    
-    # 등록된 종목에 없으면 한글 종목명 매핑에서 검색
-    if not results:
-        KOREAN_STOCK_MAP = {
-            "sk텔레콤": "017670", "sk하이닉스": "000660", "sk": "000660",
-            "네이버": "035420", "카카오": "035720", "쿠팡": "CPNG",
-            "현대차": "005380", "기아": "000270", "포스코": "005490",
-            "lg화학": "051910", "lg에너지솔루션": "373220", "lg전자": "066570",
-            "삼성바이오로직스": "207940", "삼성sdi": "006400", "삼성물산": "028260",
-            "셀트리온": "068270", "신한지주": "055550", "kb금융": "105560",
-            "하나금융지주": "086790", "우리금융지주": "316140", "메리츠금융지주": "138930",
-            "한국전력": "015760", "gs": "078930", "현대건설": "000720",
-            "대우건설": "047040", "삼성생명": "032830", "한화솔루션": "009830",
-            "두산에너빌리티": "034020", "hd현대": "011200", "한미반도체": "420770",
-            "래미안": "078000", "카카오뱅크": "323410", "토스코리아": "444530",
-            "카카오페이": "373000", "배달의민족": "WOORA", "무신사": "MUSINSA",
-        }
-        q_lower = q.lower()
-        if market in ("all", "domestic") and q_lower in KOREAN_STOCK_MAP:
-            code = KOREAN_STOCK_MAP[q_lower]
-            if code.isdigit():
-                ticker = f"{code}.KS"
-            else:
-                ticker = code
-            try:
-                import yfinance as yf
-                stock = yf.Ticker(ticker)
-                info = stock.info
-                if info and info.get("shortName"):
-                    results.append({
-                        "type": "domestic",
-                        "code": code,
-                        "name": info.get("shortName", ""),
-                        "market": "KOSPI",
-                        "currency": "KRW"
-                    })
-            except Exception:
-                pass
+    stock_config = load_stock_config()
 
-    # 이미 결과가 있으면 반환
+    # 1) 등록된 종목 (한글명/종목코드 부분 일치)
+    if market in ("all", "domestic"):
+        for s in stock_config["domestic"]:
+            name = s.get("name", "")
+            code = str(s.get("code", ""))
+            if q in name or q_upper in code.upper():
+                results.append({
+                    "type": "domestic",
+                    "code": code,
+                    "name": name,
+                    "market": s.get("market", "KOSPI"),
+                    "currency": "KRW",
+                })
+
+    if market in ("all", "foreign"):
+        for s in stock_config["foreign"]:
+            name = s.get("name", "")
+            ticker = s.get("ticker", "")
+            if q.lower() in name.lower() or q_upper in ticker.upper():
+                results.append({
+                    "type": "foreign",
+                    "ticker": ticker,
+                    "name": name,
+                    "market": s.get("market", "NASDAQ"),
+                    "currency": s.get("currency", "USD"),
+                })
+
+    # 2) 한글명 매핑 테이블 (부분 일치) - 등록 종목이 없을 때
+    if not results and market in ("all", "domestic"):
+        for item in search_korean_stocks(q, limit=10):
+            results.append({
+                "type": "domestic",
+                "code": item["code"],
+                "name": item["name"],
+                "market": item["market"],
+                "currency": "KRW",
+            })
+
     if results:
         return {"results": results[:10]}
 
-    # 등록된 종목에 없으면 yfinance로 검색
+    # 3) 6자리 종목코드 직접 입력 (매핑에 없는 코드)
+    code_match = None
+    if market in ("all", "domestic") and q.isdigit() and len(q) == 6:
+        code_match = q
+        found = find_by_code(q)
+        if found:
+            return {"results": [{
+                "type": "domestic",
+                "code": found["code"],
+                "name": found["name"],
+                "market": found["market"],
+                "currency": "KRW",
+            }]}
+
+    # 4) yfinance 폴백 (해외 티커 / 국내 코드 검증)
     try:
         import yfinance as yf
-        if market in ("all", "domestic") and q.isdigit():
-            ticker = f"{q}.KS"
+
+        if code_match:
+            for suffix in (".KS", ".KQ"):
+                try:
+                    info = yf.Ticker(code_match + suffix).info
+                    if info and info.get("shortName"):
+                        return {"results": [{
+                            "type": "domestic",
+                            "code": code_match,
+                            "name": info["shortName"],
+                            "market": "KOSDAQ" if suffix == ".KQ" else "KOSPI",
+                            "currency": "KRW",
+                        }]}
+                except Exception:
+                    continue
+            return {"results": []}
+
+        if market in ("all", "foreign"):
+            ticker = q_upper
+            for alias, alias_ticker in FOREIGN_ALIASES.items():
+                if q.lower() == alias:
+                    ticker = alias_ticker
+                    break
             try:
-                stock = yf.Ticker(ticker)
-                info = stock.info
-                if info and info.get("shortName"):
-                    results.append({"type": "domestic", "code": q, "name": info.get("shortName", ""), "market": "KOSPI", "currency": "KRW"})
-            except Exception:
-                pass
-        
-        if market in ("all", "foreign") and not q.isdigit():
-            ticker = q.upper()
-            try:
-                stock = yf.Ticker(ticker)
-                info = stock.info
+                info = yf.Ticker(ticker).info
                 if info and info.get("shortName"):
                     exchange = info.get("exchange", "")
-                    market_type = "NASDAQ" if "NMS" in exchange or "NSD" in exchange else "NYSE" if "NYQ" in exchange else exchange
-                    results.append({"type": "foreign", "ticker": ticker, "name": info.get("shortName", ""), "market": market_type, "currency": "USD"})
+                    if "NMS" in exchange or "NSD" in exchange:
+                        market_type = "NASDAQ"
+                    elif "NYQ" in exchange:
+                        market_type = "NYSE"
+                    else:
+                        market_type = exchange
+                    return {"results": [{
+                        "type": "foreign",
+                        "ticker": ticker,
+                        "name": info["shortName"],
+                        "market": market_type,
+                        "currency": "USD",
+                    }]}
             except Exception:
                 pass
-            
-            if len(results) == 0:
-                company_map = {"apple": "AAPL", "amazon": "AMZN", "nvidia": "NVDA", "google": "GOOGL", "alphabet": "GOOGL", "microsoft": "MSFT", "meta": "META", "tesla": "TSLA", "netflix": "NFLX"}
-                lower_q = q.lower()
-                if lower_q in company_map:
-                    ticker = company_map[lower_q]
-                    try:
-                        stock = yf.Ticker(ticker)
-                        info = stock.info
-                        if info and info.get("shortName"):
-                            results.append({"type": "foreign", "ticker": ticker, "name": info.get("shortName", ""), "market": "NASDAQ", "currency": "USD"})
-                    except Exception:
-                        pass
-        
-        return {"results": results[:10]}
+
+        return {"results": []}
     except ImportError:
-        return {"results": results}
-    except Exception as e:
-        return {"results": results}
+        return {"results": []}
+    except Exception:
+        return {"results": []}
 
 
 def start_server(host: str = "0.0.0.0", port: int = 8000):

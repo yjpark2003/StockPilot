@@ -134,6 +134,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             
             <div id="search-results" class="search-results" style="display: none;" role="listbox" aria-label="검색 결과"></div>
             
+            <div id="manual-entry" style="display: none; margin-top: 12px; padding: 12px; border: 1px dashed var(--input-border); border-radius: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">검색 결과에 없는 종목은 아래에 직접 입력해주세요.</p>
+                <div class="form-group">
+                    <label for="manual-code">종목코드</label>
+                    <input type="text" id="manual-code" placeholder="예: 005930" maxlength="6" inputmode="numeric" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="manual-name">종목명</label>
+                    <input type="text" id="manual-name" placeholder="예: 삼성전자" autocomplete="off">
+                </div>
+                <div style="text-align: right;">
+                    <button type="button" class="btn btn-secondary" onclick="hideManualEntry()">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="selectManualStock()">이 종목 사용</button>
+                </div>
+            </div>
+            
             <div id="selected-stock" style="display: none; margin-top: 16px; padding: 12px; background: var(--surface-subtle); border-radius: 6px;">
                 <strong>선택된 종목:</strong> <span id="selected-name"></span> (<span id="selected-code"></span>)
             </div>
@@ -276,6 +292,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             document.getElementById('search-input').value = '';
             document.getElementById('search-results').style.display = 'none';
             document.getElementById('search-status').textContent = '';
+            document.getElementById('manual-entry').style.display = 'none';
+            document.getElementById('manual-code').value = '';
+            document.getElementById('manual-name').value = '';
             document.getElementById('selected-stock').style.display = 'none';
             document.getElementById('add-btn').disabled = true;
             var modal = document.getElementById('addModal');
@@ -305,6 +324,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 return;
             }
             statusEl.textContent = '검색 중...';
+            document.getElementById('manual-entry').style.display = 'none';
             var market = currentMarket === 'domestic' ? 'domestic' : 'foreign';
             fetch('/api/stocks/search?q=' + encodeURIComponent(query) + '&market=' + market)
                 .then(function(res) {
@@ -329,7 +349,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                         container.style.display = 'block';
                         statusEl.textContent = data.results.length + '개 결과';
                     } else {
-                        container.innerHTML = '<div class="search-item">검색 결과 없음</div>';
+                        container.innerHTML = '<div class="search-item" style="cursor: default;">검색 결과 없음</div>' +
+                            '<div class="search-item" data-action="show-manual-entry" style="color: var(--primary); font-weight: 600;">직접 입력하기 &rsaquo;</div>';
                         container.style.display = 'block';
                         statusEl.textContent = '';
                     }
@@ -346,7 +367,50 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             if (item) {
                 selectSearchItem(item);
             }
+            if (e.target.closest('[data-action="show-manual-entry"]')) {
+                showManualEntry();
+            }
         });
+        
+        window.showManualEntry = function() {
+            var container = document.getElementById('search-results');
+            container.style.display = 'none';
+            var panel = document.getElementById('manual-entry');
+            panel.style.display = 'block';
+            document.getElementById('manual-code').focus();
+        };
+        
+        window.hideManualEntry = function() {
+            document.getElementById('manual-entry').style.display = 'none';
+        };
+        
+        window.selectManualStock = function() {
+            var code = document.getElementById('manual-code').value.trim();
+            var name = document.getElementById('manual-name').value.trim();
+            if (!/^[0-9]{6}$/.test(code)) {
+                showToast('종목코드는 6자리 숫자여야 합니다.', 'error');
+                document.getElementById('manual-code').focus();
+                return;
+            }
+            if (!name) {
+                showToast('종목명을 입력해주세요.', 'error');
+                document.getElementById('manual-name').focus();
+                return;
+            }
+            selectedStock = {
+                type: currentMarket,
+                code: code,
+                name: name,
+                market: 'KOSPI',
+                currency: currentMarket === 'domestic' ? 'KRW' : 'USD'
+            };
+            document.getElementById('selected-name').textContent = selectedStock.name;
+            document.getElementById('selected-code').textContent = selectedStock.code;
+            document.getElementById('selected-stock').style.display = 'block';
+            document.getElementById('search-results').style.display = 'none';
+            document.getElementById('add-btn').disabled = false;
+            document.getElementById('add-btn').focus();
+        };
         
         window.addStock = function() {
             if (!selectedStock) return;
