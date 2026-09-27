@@ -6,11 +6,19 @@ import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from analyzers import WeeklyAnalyzer
+from analyzers.period import (
+    WeeklyPeriod,
+    PeriodError,
+    resolve_period,
+    add_period_arguments,
+    period_from_namespace,
+)
 from reporters import HtmlReporter
 
 
@@ -46,8 +54,17 @@ def load_config(market: str = "domestic"):
         return yaml.safe_load(f)
 
 
-async def run_analysis(market: str = "all", with_dart: bool = False, progress_callback=None):
-    """전체 분석 실행"""
+async def run_analysis(
+    market: str = "all",
+    with_dart: bool = False,
+    progress_callback=None,
+    period: Optional[WeeklyPeriod] = None,
+):
+    """전체 분석 실행
+
+    `period` 를 주면 그 구간으로 분석한다. 생략하면 요청일 기준 규칙
+    (토/일 -> 이번 주 월~일, 평일 -> 최근 5거래일)을 따른다.
+    """
     load_env()  # .env 파일 로드
 
     # 설정 로드
@@ -63,8 +80,14 @@ async def run_analysis(market: str = "all", with_dart: bool = False, progress_ca
     if with_dart:
         print("[DART 공시 데이터 포함]")
 
+    # 분석 구간 결정 (미지정 시 요청일 기준 규칙)
+    period = period or resolve_period()
+    print(f"분석 구간: {period.year_week_label} | {period.range_label} | {period.trading_label} ({period.mode_label})")
+    if period.is_custom:
+        print("[사용자 지정 구간] 주가/뉴스는 이 구간으로 조회하고, 재무·공매도는 기준일 스냅샷입니다.")
+
     # 분석 수행
-    analyzer = WeeklyAnalyzer(news_count=3, dart_api_key=dart_api_key, with_dart=with_dart, progress_callback=progress_callback)
+    analyzer = WeeklyAnalyzer(news_count=3, dart_api_key=dart_api_key, with_dart=with_dart, progress_callback=progress_callback, period=period)
     reporter = HtmlReporter()
 
     try:
@@ -97,7 +120,7 @@ async def run_analysis(market: str = "all", with_dart: bool = False, progress_ca
             all_results["foreign"] = await analyzer.analyze_all(foreign_stocks, "foreign", current_idx, total_stocks)
 
         # 리포트 생성
-        output_dir = reporter.generate(all_results)
+        output_dir = reporter.generate(all_results, period=period)
 
         print(f"\n=== 분석 완료 ===")
         print(f"리포트 위치: {output_dir}")
@@ -114,9 +137,15 @@ def main():
                        help="분석할 시장 (all: 전체, domestic: 국내만, foreign: 해외만)")
     parser.add_argument("--with-dart", action="store_true",
                        help="DART 공시 데이터 포함 (기본: 비활성화)")
+    add_period_arguments(parser)
     args = parser.parse_args()
 
-    asyncio.run(run_analysis(args.market, args.with_dart))
+    try:
+        period = period_from_namespace(args)
+    except PeriodError as e:
+        parser.error(str(e))
+
+    asyncio.run(run_analysis(args.market, args.with_dart, period=period))
 
 
 if __name__ == "__main__":

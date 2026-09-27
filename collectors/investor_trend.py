@@ -1,8 +1,27 @@
 # -*- coding: utf-8 -*-
-"""국내 주식 투자자별 매매동향 수집 모듈"""
+"""국내 주식 투자자별 매매동향 수집 모듈
+
+주의 (2026-09-27 확인)
+  이 모듈이 파싱하던 네이버금융 레거시 화면이 모두 폐기되었다.
+    * /item/frgn.naver  -> 302 (stock.naver.com SPA로 이동)
+    * /item/sise_day.naver -> 410 Gone ("이 페이지는 더 이상 제공되지 않습니다")
+  따라서 수집 결과는 항상 비어 있고, 리포트에도 투자자별 섹션이
+  렌더링되지 않는다. 구간 지정 분석에서도 되돌릴 수 없는 데이터다.
+  (유일한 정본은 KRX data.krx.co.kr 투자자별 거래실적이며, 현재
+   이 환경에서는 `LOGOUT` responses로 차단되어 있다.)
+
+  아래 `SOURCE_AVAILABLE = False` 는 이 사실을 코드에 명시해 매번
+  브라우저를 띄우며 실패하는 것을 막고, 리포트에 "미지원"으로
+  표시할 수 있게 한다. 소스가 되살아나면 True 로 바꾸면 된다.
+"""
 import asyncio
 import re
 from playwright.async_api import async_playwright
+
+SOURCE_AVAILABLE = False
+SOURCE_UNAVAILABLE_REASON = (
+    "네이버금융 투자자별 매매동향 화면이 302/410 으로 폐기됨 (KRX 대체 필요)"
+)
 
 
 class InvestorTrendCollector:
@@ -52,7 +71,15 @@ class InvestorTrendCollector:
                 pass
 
     async def get_investor_trend(self, stock_code: str, days: int = 5) -> dict:
-        """투자자별 매매동향 수집 (외국인/기관/개인)"""
+        """투자자별 매매동향 수집 (외국인/기관/개인)
+
+        현재는 소스 폐기 때문에 항상 빈 결과를 돌려준다. 아래 구현은
+        소스 복구 시 되살리기 위한 원본 로직이다.
+        """
+        if not SOURCE_AVAILABLE:
+            return {"daily_trend": [], "foreign_ratio": "N/A", "summary": {},
+                    "unavailable_reason": SOURCE_UNAVAILABLE_REASON}
+
         await self._ensure_browser()
         page = await self._context.new_page()
         try:
@@ -167,7 +194,10 @@ class InvestorTrendCollector:
         }
 
     async def get_trading_volume(self, stock_code: str) -> dict:
-        """거래량 데이터 수집"""
+        """거래량 데이터 수집 (소스 폐기로 항상 빈 결과)"""
+        if not SOURCE_AVAILABLE:
+            return {"volume_data": [], "unavailable_reason": SOURCE_UNAVAILABLE_REASON}
+
         await self._ensure_browser()
         page = await self._context.new_page()
         try:

@@ -11,7 +11,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 def cmd_analyze(args):
     """분석 실행"""
     from scripts.run_analysis import run_analysis
-    asyncio.run(run_analysis(args.market))
+    from analyzers.period import PeriodError, period_from_namespace
+
+    try:
+        period = period_from_namespace(args)
+    except PeriodError as e:
+        print(f"분석 구간 오류: {e}", file=sys.stderr)
+        raise SystemExit(2)
+
+    asyncio.run(run_analysis(args.market, getattr(args, "with_dart", False), period=period))
 
 
 def cmd_server(args):
@@ -43,6 +51,10 @@ def main():
     analyze_parser = subparsers.add_parser("analyze", help="분석 실행")
     analyze_parser.add_argument("--market", choices=["all", "domestic", "foreign"], default="all",
                                help="분석할 시장 (all: 전체, domestic: 국내만, foreign: 해외만)")
+    analyze_parser.add_argument("--with-dart", action="store_true",
+                               help="DART 공시 데이터 포함 (기본: 비활성화)")
+    from analyzers.period import add_period_arguments
+    add_period_arguments(analyze_parser)
 
     # server 서브커맨드
     server_parser = subparsers.add_parser("server", help="웹 서버 시작")

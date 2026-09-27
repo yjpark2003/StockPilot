@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """주간 주식 분석 엔진"""
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
+from analyzers.period import WeeklyPeriod, resolve_period
 from collectors import (
     NaverFinanceCollector,
     DartCollector,
@@ -13,15 +14,114 @@ from collectors import (
     InvestorTrendCollector,
     TossNewsCollector,
 )
+from collectors.investor_trend import (
+    SOURCE_AVAILABLE as INVESTOR_TREND_AVAILABLE,
+    SOURCE_UNAVAILABLE_REASON as INVESTOR_TREND_REASON,
+)
+
+# 섹션별 데이터 기준 (basis)
+#   period      -> 지정 구간에 정확히 대응
+#   snapshot    -> 구간과 무관하게 '기준일(수집일) 현재값'만 제공
+#   unavailable -> 소스 부재로 수집 불가
+#   incomplete  -> 구간은 맞았지만 소스 데이터가 일부 미제공 (예: 최근 거래일 지연)
+BASIS_PERIOD = "period"
+BASIS_SNAPSHOT = "snapshot"
+BASIS_UNAVAILABLE = "unavailable"
+BASIS_INCOMPLETE = "incomplete"
+
+BASIS_LABELS = {
+    BASIS_PERIOD: "구간 일치",
+    BASIS_SNAPSHOT: "기준일 스냅샷",
+    BASIS_UNAVAILABLE: "미지원",
+    BASIS_INCOMPLETE: "구간 일부 미수집",
+}
+
+BASIS_NOTES = {
+    BASIS_SNAPSHOT: "해당 수치는 구간 종료일이 아닌 수집 시점 기준입니다.",
+    BASIS_UNAVAILABLE: INVESTOR_TREND_REASON,
+}
+
+# 시장별 섹션 기준. 주가/뉴스만 구간 지정이 실제로 반영된다.
+SECTION_BASIS = {
+    "domestic": {
+        "price": BASIS_PERIOD,
+        "news": BASIS_PERIOD,
+        "financial": BASIS_SNAPSHOT,
+        "investor_trend": BASIS_UNAVAILABLE,
+        "volume_data": BASIS_UNAVAILABLE,
+    },
+    "foreign": {
+        "price": BASIS_PERIOD,
+        "news": BASIS_PERIOD,
+        "financial": BASIS_SNAPSHOT,
+        "short_interest": BASIS_SNAPSHOT,
+    },
+}
+
+
+def price_alignment(price_data: dict, period: WeeklyPeriod) -> dict:
+    """주가 섹션의 구간 충족도를 계산한다.
+
+    소스(yfinance 등)가 구간의 모든 거래일을 제공하지 않는 경우가 실제로 있다
+    (국내 피드는 최근 거래일이 1~2일 늦게 반영된다). 이때 '구간 일치' 배지를
+    그대로 쓰면 없는 데이터를 있는 것처럼 보이게 하므로, 누락이 있으면
+    '구간 일부 미수집' 으로 낮춰 표시한다.
+    """
+    weekly = price_data.get("weekly_data") or []
+    got = [str(d.get("date", ""))[:10] for d in weekly if isinstance(d, dict)]
+    got = [d for d in got if d]
+    expected = [d.isoformat() for d in period.trading_days]
+    missing = [d for d in expected if d not in set(got)]
+
+    out = {"count": len(got), "expected_count": len(expected)}
+    if not got:
+        out["basis"] = BASIS_INCOMPLETE
+        out["missing_days"] = list(expected)
+        out["note"] = "구간 내 주가 데이터를 하나도 가져오지 못했습니다 (티커/코드 또는 수집 실패 확인 필요)."
+    elif expected and missing:
+        out["missing_days"] = missing
+        out["basis"] = BASIS_INCOMPLETE
+        out["note"] = (
+            f"구간 {len(expected)}거래일 중 {len(missing)}일분 데이터가 소스에 없습니다 "
+            f"({', '.join(missing)}). 수집 소스의 반영 지연으로 보입니다."
+        )
+    return out
+
+
+def build_alignment(market_type: str, sections: Optional[dict] = None) -> dict:
+    """종목별 섹션 데이터 기준 정보를 만든다 (리포트 배지용)"""
+    table = SECTION_BASIS.get(market_type, {})
+    out = {}
+    for name, basis in table.items():
+        entry = {
+            "basis": basis,
+            "label": BASIS_LABELS[basis],
+            "note": BASIS_NOTES.get(basis, ""),
+        }
+        extra = (sections or {}).get(name)
+        if isinstance(extra, dict):
+            # 섹션이 basis 를 직접 낮춘다 (예: 거래일 누락 -> incomplete)
+            if extra.get("basis") in BASIS_LABELS:
+                entry["basis"] = extra["basis"]
+                entry["label"] = BASIS_LABELS[extra["basis"]]
+                entry["note"] = BASIS_NOTES.get(extra["basis"], "")
+            for key in ("count", "expected_count", "missing_days", "unavailable_reason", "note"):
+                if extra.get(key) not in (None, "", 0):
+                    entry[key] = extra[key]
+        elif extra not in (None, [], {}):
+            entry["count"] = len(extra) if isinstance(extra, (list, tuple)) else extra
+        out[name] = entry
+    return out
 
 
 class WeeklyAnalyzer:
     """종목별 주간 분석 수행"""
 
-    def __init__(self, news_count: int = 3, dart_api_key: str = "", with_dart: bool = False, progress_callback=None):
+    def __init__(self, news_count: int = 3, dart_api_key: str = "", with_dart: bool = False, progress_callback=None, period: Optional[WeeklyPeriod] = None):
         self.news_count = news_count
         self.with_dart = with_dart
         self.progress_callback = progress_callback
+        self.period = period or resolve_period()
         self.naver = NaverFinanceCollector()
         self.dart = DartCollector(api_key=dart_api_key) if with_dart else None
         self.krx = KrxCollector()
@@ -49,9 +149,13 @@ class WeeklyAnalyzer:
 
         # 데이터 수집 (병렬 실행) - yfinance 우선 사용
         # 국내 종목은 .KS 접미사 추가
+        start = self.period.start.isoformat()
+        end = self.period.end.isoformat()
         ticker_ks = f"{code}.KS"
-        price_task = self.yfinance.get_weekly_price(ticker_ks, "KRW")
-        news_task = self.toss_news.get_news(code, self.news_count, "KRX")
+        price_task = self.yfinance.get_weekly_price(
+            ticker_ks, "KRW", start=start, end=end
+        )
+        news_task = self.toss_news.get_news(code, self.news_count, "KRX", start=start, end=end)
         financial_task = self.company_guide.get_financial_summary(code, name)
         investor_task = self.investor_trend.get_investor_trend(code)
         volume_task = self.investor_trend.get_trading_volume(code)
@@ -103,7 +207,7 @@ class WeeklyAnalyzer:
             investor_data = {
                 "daily_trend": [], "foreign_ratio": "N/A", "summary": {},
             }
-            
+
         volume_data = completed_tasks.get("volume", {})
         if isinstance(volume_data, Exception) or not volume_data:
             volume_data = {"volume_data": []}
@@ -112,6 +216,13 @@ class WeeklyAnalyzer:
         key_points = self._generate_key_points(
             name, price_data, news_data, [], financial_data, "KRW", investor_data
         )
+
+        alignment = build_alignment("domestic", {
+            "price": price_alignment(price_data, self.period),
+            "news": self._news_alignment(news_data),
+            "investor_trend": {"unavailable_reason": investor_data.get("unavailable_reason", "")},
+            "volume_data": {"unavailable_reason": volume_data.get("unavailable_reason", "")},
+        })
 
         return {
             "code": code,
@@ -129,7 +240,23 @@ class WeeklyAnalyzer:
             "investor_trend": investor_data,
             "volume_data": volume_data.get("volume_data", []),
             "key_points": key_points,
+            "data_alignment": alignment,
         }
+
+    def _news_alignment(self, news_data: list) -> dict:
+        """뉴스 수집 결과에 대한 구간 정합성 설명"""
+        items = news_data if isinstance(news_data, list) else []
+        dated = [n for n in items if n.get("pub_date")]
+        undated = [n for n in items if n.get("undated")]
+        if not items:
+            note = "해당 구간에 발행된 뉴스를 찾지 못했습니다."
+        elif dated:
+            note = f"{len(dated)}건이 구간 발행일로 확인됩니다."
+            if undated:
+                note += f" {len(undated)}건은 발행일 미상으로 구간 검증에서 제외했습니다."
+        else:
+            note = "발행일을 확인하지 못해 구간 정합성을 검증할 수 없습니다."
+        return {"count": len(items), "note": note}
 
     async def _analyze_foreign_stock(self, stock: dict) -> dict:
         """해외 종목 분석"""
@@ -139,8 +266,12 @@ class WeeklyAnalyzer:
         print(f"  [{name}] 데이터 수집 중...")
 
         # 데이터 수집 (병렬 실행)
-        price_task = self.yfinance.get_weekly_price(ticker, currency)
-        news_task = self.yfinance.get_news(ticker, self.news_count)
+        start = self.period.start.isoformat()
+        end = self.period.end.isoformat()
+        price_task = self.yfinance.get_weekly_price(
+            ticker, currency, start=start, end=end
+        )
+        news_task = self.yfinance.get_news(ticker, self.news_count, start=start, end=end)
         financial_task = self.yfinance.get_financial_summary(ticker)
         short_task = self.yfinance.get_short_interest(ticker)
 
@@ -171,6 +302,11 @@ class WeeklyAnalyzer:
             name, price_data, news_data, [], financial_data, currency, None, short_data
         )
 
+        alignment = build_alignment("foreign", {
+            "price": price_alignment(price_data, self.period),
+            "news": self._news_alignment(news_data),
+        })
+
         return {
             "code": ticker,
             "name": name,
@@ -185,6 +321,7 @@ class WeeklyAnalyzer:
             "financial": financial_data,
             "short_interest": short_data,
             "key_points": key_points,
+            "data_alignment": alignment,
         }
 
     async def analyze_all(self, stocks: list, market: str = "domestic", start_idx: int = 0, total: int = 0) -> list:
@@ -243,20 +380,22 @@ class WeeklyAnalyzer:
         # 주가 변동 분석
         if price_data and "change_rate" in price_data:
             rate = price_data["change_rate"]
+            span = "해당 구간" if self.period.is_custom else "지난 1주간"
             if rate > 5:
-                points.append(f"지난 1주간 {rate:.1f}% 상승으로 강세 지속")
+                points.append(f"{span} {rate:.1f}% 상승으로 강세 지속")
             elif rate > 0:
-                points.append(f"지난 1주간 {rate:.1f}% 소폭 상승")
+                points.append(f"{span} {rate:.1f}% 소폭 상승")
             elif rate < -5:
-                points.append(f"지난 1주간 {abs(rate):.1f}% 하락으로 약세 지속")
+                points.append(f"{span} {abs(rate):.1f}% 하락으로 약세 지속")
             elif rate < 0:
-                points.append(f"지난 1주간 {abs(rate):.1f}% 소폭 하락")
+                points.append(f"{span} {abs(rate):.1f}% 소폭 하락")
             else:
-                points.append("지난 1주간 보합세 유지")
+                points.append(f"{span} 보합세 유지")
 
         # 뉴스 분석
         if news_data:
-            points.append(f"최근 주요 뉴스 {len(news_data)}건 확인")
+            scope = "해당 구간" if self.period.is_custom else "최근"
+            points.append(f"{scope} 주요 뉴스 {len(news_data)}건 확인")
 
         # 공시 분석 (국내만)
         if disclosure_data and disclosure_data[0].get("title", "").find("목업") == -1:

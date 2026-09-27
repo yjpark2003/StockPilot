@@ -3,7 +3,7 @@
 import os
 import yaml
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,6 +71,7 @@ analysis_progress = {
     "current_stock": "",
     "status": "idle",
     "message": "",
+    "period": None,
 }
 
 # 종목 추가/삭제 요청 모델
@@ -109,16 +110,52 @@ def load_stock_config():
     return stocks
 
 
+def run_panel_options(today: date) -> dict:
+    """분석 구간 지정 패널의 연/월/주차 옵션과 기본 선택값
+
+    기본 선택은 '오늘이 포함되는 주차'다. 2026-09-01처럼 月초면 9월 1주차가
+    선택되고(ISO 36주차 = 08/31~09/06), 8월 31일처럼 월 경계에 걸친 날짜는
+    그 날짜를 실제로 포함하는 9월 1주차로 넘어간다.
+    """
+    from analyzers.period import MAX_MONTH_WEEK, month_week_for_day
+
+    cur_year, cur_month, cur_week = month_week_for_day(today)
+
+    years = sorted({cur_year - 2, cur_year - 1, cur_year, cur_year + 1}, reverse=True)
+    year_options = "".join(
+        f'<option value="{y}"{" selected" if y == cur_year else ""}>{y}년</option>' for y in years
+    )
+    month_options = "".join(
+        f'<option value="{m}"{" selected" if m == cur_month else ""}>{m}월</option>'
+        for m in range(1, 13)
+    )
+    week_options = "".join(
+        f'<option value="{w}"{" selected" if w == cur_week else ""}>{w}주차</option>'
+        for w in range(1, MAX_MONTH_WEEK + 1)
+    )
+    return {
+        "year_options": year_options,
+        "month_options": month_options,
+        "week_options": week_options,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
-async def root():
-    """메인 페이지 - 리포트 목록"""
-    try:
-        dirs = sorted(
-            [d for d in os.listdir(REPORTS_DIR) if os.path.isdir(os.path.join(REPORTS_DIR, d))],
-            reverse=True,
-        )
-    except FileNotFoundError:
-        dirs = []
+async def root(y: Optional[str] = None, m: Optional[str] = None):
+    """메인 페이지 - 연도/주차 캘린더 형태의 주간 리포트 목록"""
+    from server.report_calendar import (
+        CALENDAR_CSS,
+        render_calendar,
+        render_week_list,
+        render_year_options,
+        resolve_view,
+        scan_reports,
+    )
+    from server.theme import THEME_INIT_SCRIPT, THEME_TOGGLE_BTN, THEME_TOGGLE_SCRIPT
+
+    today = date.today()
+    entries = scan_reports(REPORTS_DIR)
+    view_year, view_month = resolve_view(entries, y, m, today)
 
     # 종목 설정 로드
     stock_config = load_stock_config()
@@ -127,7 +164,17 @@ async def root():
     domestic_tags = " ".join([f'<span class="tag">{html_escape(s.get("name", ""))}</span>' for s in stock_config["domestic"]])
     foreign_tags = " ".join([f'<span class="tag">{html_escape(s.get("name", ""))}</span>' for s in stock_config["foreign"]])
 
-    from server.theme import THEME_INIT_SCRIPT, THEME_TOGGLE_BTN, THEME_TOGGLE_SCRIPT
+    calendar_html = render_calendar(entries, view_year, view_month, today)
+    year_options = render_year_options(entries, view_year, today)
+    week_list_html = render_week_list(entries)
+    total_reports = len(entries)
+    panel = run_panel_options(today)
+    empty_hint = (
+        ""
+        if entries
+        else '<div class="no-reports"><p>아직 생성된 리포트가 없습니다.</p>'
+             "<p>위 버튼을 눌러 분석을 실행하세요.</p></div>"
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -138,22 +185,38 @@ async def root():
     <link rel="stylesheet" href="/static/theme.css">
     {THEME_INIT_SCRIPT}
     <style>
-        .container {{ max-width: 800px; }}
+        .container {{ max-width: 960px; }}
         .stock-section {{ margin-bottom: 15px; }}
         .stock-section:last-of-type {{ margin-bottom: 0; }}
         .stock-section h3 {{ font-size: 14px; margin-bottom: 10px; color: var(--primary); }}
         .stock-tags {{ display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }}
         .tag {{ background: var(--surface-subtle); padding: 4px 10px; border-radius: 15px; font-size: 12px; border: 1px solid var(--border); color: var(--text); }}
-        .report-list {{ list-style: none; }}
-        .report-item {{ background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 12px; box-shadow: var(--shadow-sm); transition: transform 0.2s ease, box-shadow 0.2s ease; }}
-        .report-item:hover {{ transform: translateX(4px); }}
-        .report-item a {{ text-decoration: none; color: var(--primary); font-size: 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }}
-        .report-item a:hover {{ color: var(--primary-hover); }}
-        .report-info {{ display: flex; flex-direction: column; gap: 4px; }}
-        .report-date {{ font-size: 16px; color: var(--primary); }}
-        .report-label {{ font-size: 14px; color: var(--text-secondary); font-weight: 400; }}
-        .report-item .arrow {{ font-size: 20px; color: var(--text-faint); }}
+        .cal-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 24px 0 12px; }}
+        .cal-head h2 {{ font-size: 18px; color: var(--text); margin: 0; }}
+        .cal-head .cal-meta {{ font-size: 13px; color: var(--text-secondary); }}
         .no-reports {{ text-align: center; padding: 60px; color: var(--text-faint); }}
+
+        /* 분석 구간 지정 패널 */
+        .run-panel {{ margin: 0 0 22px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }}
+        .run-panel h2 {{ font-size: 16px; margin: 0 0 4px; color: var(--text); }}
+        .run-panel .hint {{ font-size: 12.5px; color: var(--text-secondary); margin: 0 0 12px; }}
+        .run-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 10px; align-items: end; }}
+        .run-field {{ display: flex; flex-direction: column; gap: 4px; }}
+        .run-field label {{ font-size: 12px; color: var(--text-secondary); font-weight: 600; }}
+        .run-field select, .run-field input {{ font: inherit; font-size: 14px; padding: 7px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-subtle); color: var(--text); min-width: 0; }}
+        .run-field select:focus, .run-field input:focus {{ outline: 2px solid var(--primary); outline-offset: 1px; }}
+        .run-actions {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }}
+        .run-actions .btn {{ padding: 8px 14px; font-size: 14px; }}
+        .run-preview {{ flex: 1 1 240px; min-width: 0; font-size: 13px; color: var(--text-secondary); }}
+        .run-preview strong {{ color: var(--text); }}
+        .run-preview.is-custom {{ color: var(--text); }}
+        .run-preview .pv-badge {{ display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; margin-right: 6px; border-radius: 999px; background: rgba(158, 158, 158, .18); color: #5f6368; vertical-align: middle; }}
+        .run-preview.is-custom .pv-badge {{ background: rgba(25, 118, 210, .14); color: #1565c0; }}
+        [data-theme="dark"] .run-preview .pv-badge {{ background: rgba(174, 174, 174, .18); color: #bdbdbd; }}
+        [data-theme="dark"] .run-preview.is-custom .pv-badge {{ background: rgba(66, 165, 245, .18); color: #90caf9; }}
+        .run-panel details {{ margin-top: 12px; }}
+        .run-panel summary {{ font-size: 13px; color: var(--text-secondary); cursor: pointer; }}
+        {CALENDAR_CSS}
     </style>
 </head>
 <body>
@@ -182,38 +245,143 @@ async def root():
             </div>
         </div>
 
-        <ul class="report-list">
-    """
-    if dirs:
-        for d in dirs:
-            # Calculate week range from date (1주일 전 ~ 리포트일)
-            try:
-                report_date = datetime.strptime(d, "%Y-%m-%d")
-                # 7일 전 (실제 주식 데이터 기준)
-                start_date = report_date - timedelta(days=7)
-                period = f"{start_date.strftime('%m/%d')} - {report_date.strftime('%m/%d')}"
-                year = report_date.strftime('%Y')
-            except:
-                period = ""
-                year = ""
-            
-            html += f"""
-            <li class="report-item">
-                <a href="/reports/{html_escape(d)}/index.html">
-                    <div class="report-info">
-                        <span class="report-date">📊 {html_escape(year)} {html_escape(period)}</span>
-                        <span class="report-label">주간 리포트</span>
+        <div class="run-panel">
+            <h2>🎯 분석 구간 지정</h2>
+            <p class="hint">
+                주가는 지정한 구간으로 정확히 조회합니다. 뉴스는 발행일이 구간 안인 기사만 담고,
+                재무·공매도는 구간과 무관한 <strong>수집 시점 현재값</strong>입니다.
+            </p>
+            <div class="run-grid">
+                <div class="run-field">
+                    <label for="run-year">연도</label>
+                    <select id="run-year">{panel['year_options']}</select>
+                </div>
+                <div class="run-field">
+                    <label for="run-month">월</label>
+                    <select id="run-month">{panel['month_options']}</select>
+                </div>
+                <div class="run-field">
+                    <label for="run-week">주차</label>
+                    <select id="run-week">{panel['week_options']}</select>
+                </div>
+                <div class="run-field">
+                    <label for="run-market">시장</label>
+                    <select id="run-market">
+                        <option value="all">전체</option>
+                        <option value="domestic">국내만</option>
+                        <option value="foreign">해외만</option>
+                    </select>
+                </div>
+            </div>
+            <details id="run-custom">
+                <summary>직접 날짜로 지정 (시작일 ~ 종료일)</summary>
+                <div class="run-grid" style="margin-top:10px;">
+                    <div class="run-field">
+                        <label for="run-start">시작일</label>
+                        <input type="date" id="run-start">
                     </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>"""
-    else:
-        html += '<div class="no-reports"><p>아직 생성된 리포트가 없습니다.</p><p>위 버튼을 눌러 분석을 실행하세요.</p></div>'
+                    <div class="run-field">
+                        <label for="run-end">종료일</label>
+                        <input type="date" id="run-end">
+                    </div>
+                </div>
+            </details>
+            <div class="run-actions">
+                <button type="button" class="btn btn-green" id="run-go">이 구간 분석 실행</button>
+                <a href="/run-analysis?market=all" class="btn btn-secondary" id="run-default">기본 구간으로 실행</a>
+                <span class="run-preview" id="run-preview" aria-live="polite">구간을 선택하세요.</span>
+            </div>
+        </div>
 
-    html += f"""
-        </ul>
+        <div class="cal-head">
+            <h2>📅 주간 리포트 캘린더</h2>
+            <div class="cal-meta">
+                <select class="year-picker" onchange="location.href='/?y={{this.value}}&m={view_month}'" aria-label="연도 선택">
+                    {year_options}
+                </select>
+                <span>총 {total_reports}건</span>
+            </div>
+        </div>
+
+        <div class="cal-wrap">
+            {calendar_html}
+            <p class="cal-legend">
+                <span class="swatch"></span>해당 주차 분석 리포트 있음 (좌측은 ISO 주차, 오른쪽 배지는 해당 주차 번호)
+            </p>
+        </div>
+
+        {empty_hint}
+        {week_list_html}
     </div>
     {THEME_TOGGLE_SCRIPT}
+    <script>
+    (function () {{
+        var elYear = document.getElementById('run-year');
+        var elMonth = document.getElementById('run-month');
+        var elWeek = document.getElementById('run-week');
+        var elStart = document.getElementById('run-start');
+        var elEnd = document.getElementById('run-end');
+        var elMarket = document.getElementById('run-market');
+        var elGo = document.getElementById('run-go');
+        var elDefault = document.getElementById('run-default');
+        var elPreview = document.getElementById('run-preview');
+        if (!elYear || !elGo) return;
+
+        // 날짜 입력이 비어 있으면 연/월/주차, 채워져 있으면 날짜 범위를 쓴다
+        function params() {{
+            var q = ['market=' + encodeURIComponent(elMarket.value)];
+            if (elStart.value || elEnd.value) {{
+                if (elStart.value) q.push('start=' + elStart.value);
+                if (elEnd.value) q.push('end=' + elEnd.value);
+            }} else {{
+                q.push('year=' + elYear.value);
+                q.push('month=' + elMonth.value);
+                q.push('week=' + elWeek.value);
+            }}
+            return q.join('&');
+        }}
+
+        function render(data) {{
+            if (!data) return;
+            elPreview.className = 'run-preview' + (data.is_custom ? ' is-custom' : '');
+            elPreview.innerHTML = '<span class="pv-badge">' +
+                (data.is_custom ? '지정 구간' : '기본 구간') + '</span><strong>' +
+                data.year_week_label + '</strong> · ' + data.range_label + ' · ' + data.trading_label;
+        }}
+
+        function fail(text) {{
+            elPreview.className = 'run-preview';
+            elPreview.textContent = text;
+        }}
+
+        function refresh() {{
+            fail('구간 확인 중...');
+            fetch('/api/period/preview?' + params())
+                .then(function (r) {{ return r.ok ? r.json() : r.json().then(function (e) {{ throw e; }}); }})
+                .then(render)
+                .catch(function (e) {{
+                    fail((e && e.detail) ? e.detail : '구간을 읽을 수 없습니다.');
+                }});
+        }}
+
+        [elYear, elMonth, elWeek, elStart, elEnd].forEach(function (el) {{
+            el.addEventListener('change', refresh);
+        }});
+        elMarket.addEventListener('change', function () {{
+            elDefault.href = '/run-analysis?market=' + encodeURIComponent(elMarket.value);
+        }});
+
+        elGo.addEventListener('click', function () {{
+            location.href = '/run-analysis?' + params();
+        }});
+        elDefault.addEventListener('click', function (e) {{
+            e.preventDefault();
+            location.href = '/run-analysis?market=' + encodeURIComponent(elMarket.value);
+        }});
+
+        refresh();
+    }})();
+    </script>
 </body>
 </html>"""
     return html
@@ -263,24 +431,62 @@ async def stream_progress():
     )
 
 
+def resolve_request_period(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    iso_year: Optional[str] = None,
+    iso_week: Optional[str] = None,
+    year: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,
+):
+    """HTTP 쿼리 파라미터 -> WeeklyPeriod (없으면 None)
+
+    잘못된 지정이면 사용자에게 400 과 함께 한국어 오류 메시지를 돌려준다.
+    """
+    from analyzers.period import PeriodError, period_from_values
+
+    try:
+        return period_from_values(
+            start=start, end=end, iso_year=iso_year, iso_week=iso_week,
+            year=year, month=month, week=week,
+        )
+    except PeriodError as e:
+        raise HTTPException(status_code=400, detail=f"분석 구간을 읽을 수 없습니다: {e}")
+
+
 @app.get("/run-analysis")
 async def run_analysis_endpoint(
     market: str = Query("all", regex="^(all|domestic|foreign)$"),
-    with_dart: bool = Query(False)
+    with_dart: bool = Query(False),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    iso_year: Optional[str] = None,
+    iso_week: Optional[str] = None,
+    year: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,
 ):
     """수동 분석 실행 (진행률 표시 페이지)"""
     from scripts.run_analysis import run_analysis, load_config
 
+    period = resolve_request_period(
+        start=start, end=end, iso_year=iso_year, iso_week=iso_week,
+        year=year, month=month, week=week,
+    )
+
     # 이미 실행 중이면 새로 시작하지 않고 진행 상황 페이지 재사용
     if analysis_progress["is_running"]:
-        return HTMLResponse(_progress_page(market, False))
+        return HTMLResponse(_progress_page(market, False, None))
 
     # 진행률 초기화
     analysis_progress["is_running"] = True
     analysis_progress["status"] = "running"
     analysis_progress["current"] = 0
+    analysis_progress["current_stock"] = ""
     analysis_progress["message"] = "분석 준비 중..."
-    
+    analysis_progress["period"] = period.to_dict() if period else None
+
     # 종목 수 계산
     total_stocks = 0
     if market in ("all", "domestic"):
@@ -289,9 +495,9 @@ async def run_analysis_endpoint(
     if market in ("all", "foreign"):
         config = load_config("foreign")
         total_stocks += len(config.get("foreign_stocks", []))
-    
+
     analysis_progress["total"] = total_stocks
-    
+
     # 백그라운드 분석 함수
     async def run_background():
         try:
@@ -300,9 +506,9 @@ async def run_analysis_endpoint(
                 analysis_progress["total"] = total
                 analysis_progress["current_stock"] = stock_name
                 analysis_progress["message"] = status
-            
-            # 분석 실행 (진행률 콜백 전달)
-            await run_analysis(market, with_dart, progress_callback)
+
+            # 분석 실행 (진행률 콜백 + 구간 전달)
+            await run_analysis(market, with_dart, progress_callback, period=period)
             analysis_progress["status"] = "completed"
             analysis_progress["message"] = "분석 완료!"
             analysis_progress["current"] = analysis_progress["total"]
@@ -312,18 +518,36 @@ async def run_analysis_endpoint(
             analysis_progress["message"] = f"오류: {str(e)}"
         finally:
             analysis_progress["is_running"] = False
-    
+
     # 백그라운드에서 분석 실행
     asyncio.create_task(run_background())
-    
+
     # 진행률 표시 페이지 반환
-    return HTMLResponse(_progress_page(market, with_dart))
+    return HTMLResponse(_progress_page(market, with_dart, period))
 
 
-def _progress_page(market: str, with_dart: bool) -> str:
+def _progress_page(market: str, with_dart: bool, period=None) -> str:
     """분석 진행률 표시 페이지 생성"""
     market_label = {"all": "전체", "domestic": "국내", "foreign": "해외"}[market]
     dart_text = " (DART 포함)" if with_dart else ""
+    if period is not None:
+        period_html = (
+            '<div class="run-period">'
+            f'<span class="run-period-badge">지정 구간</span>'
+            f'<strong>{html_escape(period.year_week_label)}</strong> · '
+            f'{html_escape(period.range_label)} · {html_escape(period.trading_label)}'
+            "</div>"
+        )
+    else:
+        from analyzers.period import resolve_period as _rp
+        _default = _rp()
+        period_html = (
+            '<div class="run-period">'
+            '<span class="run-period-badge run-period-default">기본 구간</span>'
+            f'<strong>{html_escape(_default.year_week_label)}</strong> · '
+            f'{html_escape(_default.range_label)} · {html_escape(_default.trading_label)}'
+            "</div>"
+        )
     progress_page = """<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -344,6 +568,12 @@ def _progress_page(market: str, with_dart: bool) -> str:
         .container { max-width: 600px; margin: 0 auto; background: var(--surface); padding: 40px; border-radius: 12px; box-shadow: var(--shadow-md); }
         h1 { color: var(--primary); margin-bottom: 20px; }
         .stock-name { font-size: 24px; color: var(--primary); font-weight: 600; margin: 10px 0; }
+        .run-period { margin: 0 auto 18px; padding: 10px 14px; max-width: 460px; font-size: 14px; color: var(--text-secondary); background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 8px; }
+        .run-period strong { color: var(--text); }
+        .run-period-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; margin-right: 8px; border-radius: 999px; background: rgba(25, 118, 210, .14); color: #1565c0; vertical-align: middle; }
+        .run-period-default { background: rgba(158, 158, 158, .18); color: #5f6368; }
+        [data-theme="dark"] .run-period-badge { background: rgba(66, 165, 245, .18); color: #90caf9; }
+        [data-theme="dark"] .run-period-default { background: rgba(174, 174, 174, .18); color: #bdbdbd; }
         .progress-bar { width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden; margin: 20px 0; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #1a237e, #0d47a1); transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; min-width: 0; }
         .status { margin: 20px 0; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -355,6 +585,7 @@ def _progress_page(market: str, with_dart: bool) -> str:
     <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
     <div class="container">
         <h1>MARKET_LABEL 종목 분석DART_TEXT</h1>
+        PERIOD_HTML
         <div class="stock-name" id="stock-name">준비 중...</div>
         <div class="progress-bar">
             <div class="progress-fill" id="progress-fill" style="width: 0%">0%</div>
@@ -476,18 +707,59 @@ def _progress_page(market: str, with_dart: bool) -> str:
 </body>
 </html>"""
 
-    return progress_page.replace("MARKET_LABEL", market_label).replace("DART_TEXT", dart_text)
+    return (progress_page
+            .replace("MARKET_LABEL", market_label)
+            .replace("DART_TEXT", dart_text)
+            .replace("PERIOD_HTML", period_html))
 
 
 @app.get("/api/run")
-async def api_run_analysis(with_dart: bool = Query(False)):
+async def api_run_analysis(
+    with_dart: bool = Query(False),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    iso_year: Optional[str] = None,
+    iso_week: Optional[str] = None,
+    year: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,
+):
     """API: 전체 분석 실행"""
     from scripts.run_analysis import run_analysis
     try:
-        await run_analysis("all", with_dart)
+        period = resolve_request_period(
+            start=start, end=end, iso_year=iso_year, iso_week=iso_week,
+            year=year, month=month, week=week,
+        )
+        await run_analysis("all", with_dart, period=period)
         return {"status": "success", "message": "분석 완료"}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/period/preview")
+async def preview_period(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    iso_year: Optional[str] = None,
+    iso_week: Optional[str] = None,
+    year: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,
+):
+    """구간 선택 미리보기 - UI가 실행 전에 실제 구간/거래일을 보여준다"""
+    from analyzers.period import resolve_period
+
+    period = resolve_request_period(
+        start=start, end=end, iso_year=iso_year, iso_week=iso_week,
+        year=year, month=month, week=week,
+    )
+    if period is None:
+        period = resolve_period()
+        return {"is_custom": False, **period.to_dict()}
+    return {"is_custom": True, **period.to_dict()}
 
 
 # ========== 종목 관리 API ==========

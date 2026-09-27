@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """해외 주식 데이터 수집 모듈 (yfinance)"""
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 
@@ -15,26 +15,55 @@ class YfinanceCollector:
         """리소스 정리 (yfinance는 별도 리소스 없음)"""
         pass
 
-    async def get_weekly_price(self, ticker: str, currency: str = "USD") -> dict:
-        """최근 1주간 주가 변동 데이터 수집"""
+    async def get_weekly_price(
+        self,
+        ticker: str,
+        currency: str = "USD",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        days: int = 5,
+    ) -> dict:
+        """주간 주가 변동 데이터 수집
+
+        start/end(YYYY-MM-DD)를 주면 해당 구간의 거래일을, 생략하면 최근
+        `days`거래일을 가져온다. 구간은 analyzers.period가 계산한다.
+        """
         try:
             stock = yf.Ticker(ticker)
 
-            # 최근 5일 데이터
-            hist = stock.history(period="5d", interval="1d")
-            if hist.empty:
+            if start and end:
+                # end는 포함 구간이므로 1일 여유를 두고 요청
+                hist = stock.history(
+                    start=start,
+                    end=(date.fromisoformat(end) + timedelta(days=1)).isoformat(),
+                    interval="1d",
+                )
+            else:
+                hist = stock.history(period=f"{days}d", interval="1d")
+
+            if hist is None or hist.empty:
                 return self._get_empty_price(ticker)
 
             weekly_data = []
-            for date, row in hist.iterrows():
+            for idx, row in hist.iterrows():
+                if row["Close"] != row["Close"]:  # NaN
+                    continue
                 weekly_data.append({
-                    "date": date.strftime("%Y-%m-%d"),
+                    "date": idx.strftime("%Y-%m-%d"),
                     "close": round(float(row["Close"]), 2),
-                    "volume": int(row["Volume"]),
+                    "volume": int(row["Volume"]) if row["Volume"] == row["Volume"] else 0,
                 })
 
-            # 날짜 순서대로 정렬 (오래된 날짜가 왼쪽)
+            # 주말/휴장일 등 거래 없는 날짜 제거 후 최근 `days`일만 유지
+            weekly_data = [
+                d for d in weekly_data
+                if date.fromisoformat(d["date"]).weekday() < 5
+            ]
             weekly_data.sort(key=lambda x: x["date"])
+            weekly_data = weekly_data[-days:]
+
+            if not weekly_data:
+                return self._get_empty_price(ticker)
 
             # 주간 변동률 계산
             if len(weekly_data) >= 2:
@@ -67,49 +96,91 @@ class YfinanceCollector:
             print(f"yfinance 가격 수집 오류 ({ticker}): {e}")
             return self._get_empty_price(ticker)
 
-    async def get_news(self, ticker: str, count: int = 3) -> list:
-        """종목 관련 뉴스 수집"""
+    async def get_news(
+        self,
+        ticker: str,
+        count: int = 3,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> list:
+        """종목 관련 뉴스 수집
+
+        `start`/`end`(YYYY-MM-DD)를 주면 그 구간에 발행된 기사만 남긴다.
+        단, stock.news 는 현재 피드만 주어 과거 주차는 대부분 비게 된다.
+        """
+        lo = self._parse_bound(start)
+        hi = self._parse_bound(end)
+        filtering = lo is not None or hi is not None
         try:
             stock = yf.Ticker(ticker)
             news = stock.news
 
             news_items = []
             if news:
-                for item in news[:count]:
+                for item in news:
+                    if len(news_items) >= count:
+                        break
                     # yfinance 뉴스 구조: {id, content: {title, provider, canonicalUrl, ...}}
                     content = item.get("content", {})
-                    
+
                     title = content.get("title", "")
                     provider = content.get("provider", {})
                     publisher = provider.get("displayName", "") if provider else ""
-                    
+
                     canonical_url = content.get("canonicalUrl", {})
                     link = canonical_url.get("url", "") if canonical_url else ""
-                    
+
                     # 발행 시간
                     pub_time = content.get("pubDate", "")
-                    if pub_time:
-                        # ISO 형식 파싱 시도
-                        try:
-                            from datetime import datetime
-                            dt = datetime.fromisoformat(pub_time.replace("Z", "+00:00"))
-                            publish_time = dt.strftime("%Y-%m-%d %H:%M")
-                        except:
-                            publish_time = pub_time[:16]
-                    else:
-                        publish_time = ""
+                    published = self._parse_pub_date(pub_time)
+                    if filtering:
+                        if published is None or not self._in_range(published, lo, hi):
+                            continue
 
                     if title:
                         news_items.append({
                             "title": title,
                             "link": link,
                             "source": publisher,
-                            "time": f"{publisher} | {publish_time}" if publisher else publish_time,
+                            "time": published.strftime("%Y-%m-%d %H:%M") if published else (pub_time[:16] if pub_time else ""),
+                            "pub_date": published.isoformat() if published else "",
+                            "undated": published is None,
                         })
             return news_items
         except Exception as e:
             print(f"yfinance 뉴스 수집 오류 ({ticker}): {e}")
             return []
+
+    @staticmethod
+    def _parse_pub_date(value: str) -> Optional[date]:
+        """RFC3339 발행 시각 -> 날짜 (없으면 None)"""
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+        except (ValueError, TypeError):
+            pass
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_bound(value: Optional[str]) -> Optional[date]:
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _in_range(day: date, lo: Optional[date], hi: Optional[date]) -> bool:
+        if lo and day < lo:
+            return False
+        if hi and day > hi:
+            return False
+        return True
 
     async def get_financial_summary(self, ticker: str) -> dict:
         """재무 요약 데이터 수집 (PER, PBR, 시가총액 등)"""
