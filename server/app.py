@@ -344,9 +344,22 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         function render(data) {{
             if (!data) return;
             elPreview.className = 'run-preview' + (data.is_custom ? ' is-custom' : '');
+            // 휴장일이 시장마다 달라 거래일 개수가 다를 수 있다(추석 등).
+            // 선택한 시장의 거래일을 보여주되, 두 시장이 다르면 둘 다 알린다.
+            var label;
+            if (data.markets_differ && elMarket.value === 'all') {{
+                label = '국내 ' + data.trading_label_domestic +
+                        ' · 해외 ' + data.trading_label_foreign;
+            }} else if (elMarket.value === 'domestic') {{
+                label = data.trading_label_domestic;
+            }} else if (elMarket.value === 'foreign') {{
+                label = data.trading_label_foreign;
+            }} else {{
+                label = data.trading_label;
+            }}
             elPreview.innerHTML = '<span class="pv-badge">' +
                 (data.is_custom ? '지정 구간' : '기본 구간') + '</span><strong>' +
-                data.year_week_label + '</strong> · ' + data.range_label + ' · ' + data.trading_label;
+                data.year_week_label + '</strong> · ' + data.range_label + ' · ' + label;
         }}
 
         function fail(text) {{
@@ -369,6 +382,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         }});
         elMarket.addEventListener('change', function () {{
             elDefault.href = '/run-analysis?market=' + encodeURIComponent(elMarket.value);
+            refresh();
         }});
 
         elGo.addEventListener('click', function () {{
@@ -439,17 +453,22 @@ def resolve_request_period(
     year: Optional[str] = None,
     month: Optional[str] = None,
     week: Optional[str] = None,
+    market: str = "all",
 ):
     """HTTP 쿼리 파라미터 -> WeeklyPeriod (없으면 None)
 
     잘못된 지정이면 사용자에게 400 과 함께 한국어 오류 메시지를 돌려준다.
+    `market` 는 구간의 기준 시장이며, 두 시장을 함께 보면 마감 시각이 늦은
+    해외 장을 기준으로 구간을 자른다.
     """
     from analyzers.period import PeriodError, period_from_values
+    from analyzers.market_calendar import MARKET_KR, MARKET_US
 
+    period_market = MARKET_KR if market == "domestic" else MARKET_US
     try:
         return period_from_values(
             start=start, end=end, iso_year=iso_year, iso_week=iso_week,
-            year=year, month=month, week=week,
+            year=year, month=month, week=week, market=period_market,
         )
     except PeriodError as e:
         raise HTTPException(status_code=400, detail=f"분석 구간을 읽을 수 없습니다: {e}")
@@ -472,12 +491,15 @@ async def run_analysis_endpoint(
 
     period = resolve_request_period(
         start=start, end=end, iso_year=iso_year, iso_week=iso_week,
-        year=year, month=month, week=week,
+        year=year, month=month, week=week, market=market,
     )
 
-    # 이미 실행 중이면 새로 시작하지 않고 진행 상황 페이지 재사용
+    # 이미 실행 중이면 새로 시작하지 않고 진행 상황 페이지 재사용.
+    # 이때 period=None 을 넘기면 페이지가 '기본 구간'을 계산해 사용자가
+    # 지정한 구간과 다른 날짜를 보여준다(예: 39주차 링크 -> 09/17~09/23).
+    # 요청한 구간을 그대로 넘겨 링크와 화면이 일치하게 한다.
     if analysis_progress["is_running"]:
-        return HTMLResponse(_progress_page(market, False, None))
+        return HTMLResponse(_progress_page(market, False, period))
 
     # 진행률 초기화
     analysis_progress["is_running"] = True
@@ -526,6 +548,15 @@ async def run_analysis_endpoint(
     return HTMLResponse(_progress_page(market, with_dart, period))
 
 
+def _split_trading_html(period) -> str:
+    """거래일 표기. 휴장일 차이로 국내/해외가 다르면 둘 다 보여준다."""
+    if period.markets_differ:
+        from analyzers.market_calendar import MARKET_KR, MARKET_US
+        return (f'국내 {html_escape(period.trading_label_for(MARKET_KR))} · '
+                f'해외 {html_escape(period.trading_label_for(MARKET_US))}')
+    return html_escape(period.trading_label)
+
+
 def _progress_page(market: str, with_dart: bool, period=None) -> str:
     """분석 진행률 표시 페이지 생성"""
     market_label = {"all": "전체", "domestic": "국내", "foreign": "해외"}[market]
@@ -535,18 +566,20 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
             '<div class="run-period">'
             f'<span class="run-period-badge">지정 구간</span>'
             f'<strong>{html_escape(period.year_week_label)}</strong> · '
-            f'{html_escape(period.range_label)} · {html_escape(period.trading_label)}'
-            "</div>"
+            f'{html_escape(period.range_label)} · ' + _split_trading_html(period)
+            + "</div>"
         )
     else:
         from analyzers.period import resolve_period as _rp
-        _default = _rp()
+        from analyzers.market_calendar import MARKET_KR, MARKET_US
+        _default = _rp(market=MARKET_KR if market == "domestic" else MARKET_US)
         period_html = (
             '<div class="run-period">'
             '<span class="run-period-badge run-period-default">기본 구간</span>'
             f'<strong>{html_escape(_default.year_week_label)}</strong> · '
-            f'{html_escape(_default.range_label)} · {html_escape(_default.trading_label)}'
-            "</div>"
+            f'{html_escape(_default.range_label)} · '
+            + _split_trading_html(_default)
+            + "</div>"
         )
     progress_page = """<!DOCTYPE html>
 <html lang="ko">
@@ -729,7 +762,7 @@ async def api_run_analysis(
     try:
         period = resolve_request_period(
             start=start, end=end, iso_year=iso_year, iso_week=iso_week,
-            year=year, month=month, week=week,
+            year=year, month=month, week=week, market="all",
         )
         await run_analysis("all", with_dart, period=period)
         return {"status": "success", "message": "분석 완료"}
@@ -748,16 +781,19 @@ async def preview_period(
     year: Optional[str] = None,
     month: Optional[str] = None,
     week: Optional[str] = None,
+    market: str = Query("all", regex="^(all|domestic|foreign)$"),
 ):
     """구간 선택 미리보기 - UI가 실행 전에 실제 구간/거래일을 보여준다"""
     from analyzers.period import resolve_period
+    from analyzers.market_calendar import MARKET_KR, MARKET_US
 
+    period_market = MARKET_KR if market == "domestic" else MARKET_US
     period = resolve_request_period(
         start=start, end=end, iso_year=iso_year, iso_week=iso_week,
-        year=year, month=month, week=week,
+        year=year, month=month, week=week, market=market,
     )
     if period is None:
-        period = resolve_period()
+        period = resolve_period(market=period_market)
         return {"is_custom": False, **period.to_dict()}
     return {"is_custom": True, **period.to_dict()}
 

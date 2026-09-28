@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from analyzers.period import WeeklyPeriod, resolve_period
+from analyzers.market_calendar import MARKET_KR, MARKET_US
 from collectors import (
     NaverFinanceCollector,
     DartCollector,
@@ -59,18 +60,23 @@ SECTION_BASIS = {
 }
 
 
-def price_alignment(price_data: dict, period: WeeklyPeriod) -> dict:
+def price_alignment(price_data: dict, period: WeeklyPeriod,
+                    market: str = MARKET_KR) -> dict:
     """주가 섹션의 구간 충족도를 계산한다.
 
     소스(yfinance 등)가 구간의 모든 거래일을 제공하지 않는 경우가 실제로 있다
     (국내 피드는 최근 거래일이 1~2일 늦게 반영된다). 이때 '구간 일치' 배지를
     그대로 쓰면 없는 데이터를 있는 것처럼 보이게 하므로, 누락이 있으면
     '구간 일부 미수집' 으로 낮춰 표시한다.
+
+    기대일은 휴장일 달력(`trading_days_for`)으로 정한다. 휴장일을 기대일에
+    넣으면 실제로는 정상인데도 누락으로 보고하는 오탐이 생긴다. 예) 추석
+    연휴(2026-09-24·25)에는 국내 장이 닫혔으므로 기대 거래일은 3일이다.
     """
     weekly = price_data.get("weekly_data") or []
     got = [str(d.get("date", ""))[:10] for d in weekly if isinstance(d, dict)]
     got = [d for d in got if d]
-    expected = [d.isoformat() for d in period.trading_days]
+    expected = [d.isoformat() for d in period.trading_days_for(market)]
     missing = [d for d in expected if d not in set(got)]
 
     out = {"count": len(got), "expected_count": len(expected)}
@@ -82,8 +88,8 @@ def price_alignment(price_data: dict, period: WeeklyPeriod) -> dict:
         out["missing_days"] = missing
         out["basis"] = BASIS_INCOMPLETE
         out["note"] = (
-            f"구간 {len(expected)}거래일 중 {len(missing)}일분 데이터가 소스에 없습니다 "
-            f"({', '.join(missing)}). 수집 소스의 반영 지연으로 보입니다."
+            f"거래일 {len(expected)}일 중 {len(missing)}일분 데이터가 소스에 없습니다 "
+            f"({', '.join(missing)}). 소스 반영 지연일 수 있습니다."
         )
     return out
 
@@ -218,7 +224,7 @@ class WeeklyAnalyzer:
         )
 
         alignment = build_alignment("domestic", {
-            "price": price_alignment(price_data, self.period),
+            "price": price_alignment(price_data, self.period, MARKET_KR),
             "news": self._news_alignment(news_data),
             "investor_trend": {"unavailable_reason": investor_data.get("unavailable_reason", "")},
             "volume_data": {"unavailable_reason": volume_data.get("unavailable_reason", "")},
@@ -303,7 +309,7 @@ class WeeklyAnalyzer:
         )
 
         alignment = build_alignment("foreign", {
-            "price": price_alignment(price_data, self.period),
+            "price": price_alignment(price_data, self.period, MARKET_US),
             "news": self._news_alignment(news_data),
         })
 

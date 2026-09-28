@@ -5,17 +5,32 @@
   * 지정 구간(custom): 사용자가 연/월/주차 또는 시작일·종료일로 직접 고른다.
     예) 2026년 9월 1주차 -> 08/31(월) ~ 09/06(일)
   * 토/일(weekend)에 분석을 요청하면 "이번 주 월~일" 전체를 분석한다.
-    예) 2026-09-27(일) 요청 -> 09/21(월) ~ 09/27(일), 거래일 09/21~09/25
-  * 평일(weekday)에 분석을 요청하면 "요청일까지의 최근 5거래일"을 분석한다.
-    예) 2026-09-23(수) 요청 -> 09/17(목) ~ 09/23(수), 거래일 09/17,18,21,22,23
+    예) 2026-09-27(일) 요청 -> 09/21(월) ~ 09/27(일), 거래일 09/21~09/23
+    (09/24·25 는 추석 연휴 휴장일)
+  * 평일(weekday)에 분석을 요청하면 "최근 5거래일"을 분석한다.
+    구간은 요청일이 아니라 *마감된* 마지막 거래일까지 거슬러 계산한다
+    (국내 15:30 KST 전이면 당일은 제외).
+    예) 2026-09-28(월) 10시 요청 -> 09/17(목) ~ 09/23(수),
+        거래일 09/17,18,21,22,23 (09/24·25 는 추석 연휴)
 
-휴장일 캘린더은 포함하지 않는다. 실제 거래일은 수집된 데이터의 날짜로
-확정하고, `WeeklyPeriod.from_trading_days()`로 되돌린다.
+거래일은 `market_calendar` 의 휴장일 달력을 따른다. 주말/휴장일을 거래일로 세면
+거래일 개수가 과대 계산되고 '구간 일부 미수집' 오탐 경고가 뜬다.
+아직 마감되지 않은 세션(국내 15:30 KST, 미국 KST 다음날 06:00 기준)도
+구간에서 제외하므로, 아직 공개되지 않은 데이터를 요구하지 않는다.
 """
 import calendar
 from dataclasses import dataclass, asdict
 from datetime import date, timedelta
 from typing import Iterable, List, Optional, Sequence
+
+from analyzers.market_calendar import (
+    MARKET_KR,
+    MARKET_LABELS,
+    MARKET_US,
+    is_trading_day,
+    last_closed_trading_day,
+    trading_days as _market_trading_days,
+)
 
 WEEKDAY_KO = ("월", "화", "수", "목", "금", "토", "일")
 TRADING_DAY_COUNT = 5
@@ -42,18 +57,19 @@ class PeriodError(ValueError):
     """구간 지정이 잘못되었을 때"""
 
 
-def _is_trading_day(day: date) -> bool:
-    """토/일을 제외한 평일 여부 (휴장일은 알 수 없으므로 제외하지 않음)"""
-    return day.weekday() < 5
+def _is_trading_day(day: date, market: str = MARKET_KR) -> bool:
+    """휴장일·주말을 제외한 실제 거래일 여부"""
+    return is_trading_day(day, market)
 
 
-def _last_trading_days(end: date, count: int = TRADING_DAY_COUNT) -> List[date]:
-    """end(含)까지 거슬러 올라가며 최근 `count`개 거래일(평일) 수집 (오래된 순)"""
+def _last_trading_days(end: date, count: int = TRADING_DAY_COUNT,
+                       market: str = MARKET_KR) -> List[date]:
+    """end(含)까지 거슬러 올라가며 최근 `count`개 거래일 수집 (오래된 순)"""
     days: List[date] = []
     cursor = end
     guard = 0
-    while len(days) < count and guard < count * 7 + 14:
-        if _is_trading_day(cursor):
+    while len(days) < count and guard < count * 7 + 30:
+        if _is_trading_day(cursor, market):
             days.append(cursor)
         cursor -= timedelta(days=1)
         guard += 1
@@ -66,15 +82,9 @@ def _week_window(run_date: date) -> tuple:
     return monday, monday + timedelta(days=6)
 
 
-def _weekdays_in_range(start: date, end: date) -> List[date]:
-    """[start, end] 구간의 평일만 오래된 순으로 (휴장일 판별 불가)"""
-    days: List[date] = []
-    cursor = start
-    while cursor <= end:
-        if _is_trading_day(cursor):
-            days.append(cursor)
-        cursor += timedelta(days=1)
-    return days
+def _weekdays_in_range(start: date, end: date, market: str = MARKET_KR) -> List[date]:
+    """[start, end] 구간의 거래일만 오래된 순으로"""
+    return _market_trading_days(start, end, market)
 
 
 def _iso_week_window(year: int, week: int) -> tuple:
@@ -111,6 +121,35 @@ class WeeklyPeriod:
     trading_days: tuple
     mode: str = "week"
     run_date: Optional[date] = None
+    # 구간의 기준 시장. trading_days/라벨은 이 시장의 휴장일 달력을 따른다.
+    # 국내/해외 휴장일이 달라(`trading_days_for` 참고) 시장별로 달라진다.
+    market: str = MARKET_KR
+
+    # --- 거래일 -----------------------------------------------------------
+    def trading_days_for(self, market: Optional[str] = None) -> tuple:
+        """해당 시장 기준으로 거래일을 다시 계산한다.
+
+        `trading_days` 는 구간의 기준 시장 값이라 그대로 쓰면 overseas 종목에
+        국내 휴장일을 유효 거래일로 잘못 센다. 추석에 미국은 거래하므로
+        종목별 시장으로 다시 계산한다.
+        """
+        target = market or self.market
+        if target == self.market:
+            return self.trading_days
+        return tuple(_market_trading_days(self.start, self.end, target))
+
+    def with_market(self, market: str) -> "WeeklyPeriod":
+        """기준 시장만 바꾸어 반환 (거래일도 새 시장 달력으로 다시 계산)"""
+        if market == self.market:
+            return self
+        return WeeklyPeriod(
+            start=self.start,
+            end=self.end,
+            trading_days=tuple(_market_trading_days(self.start, self.end, market)),
+            mode=self.mode,
+            run_date=self.run_date,
+            market=market,
+        )
 
     # --- 주차 정보 -------------------------------------------------------
     @property
@@ -128,6 +167,11 @@ class WeeklyPeriod:
 
     # --- 표기 ------------------------------------------------------------
     @property
+    def market_label(self) -> str:
+        """구간의 기준 시장 표기"""
+        return MARKET_LABELS.get(self.market, self.market)
+
+    @property
     def range_label(self) -> str:
         """'09/21(월) ~ 09/27(일)' (연도가 다르면 연도 포함)"""
         left = format_korean_date(self.start, with_year=self.start.year != self.end.year)
@@ -136,12 +180,27 @@ class WeeklyPeriod:
 
     @property
     def trading_label(self) -> str:
-        """'거래일 09/21~09/25 (5일)'"""
-        if not self.trading_days:
+        """'거래일 09/21~09/23 (3일)'"""
+        return self.trading_label_for(self.market)
+
+    def trading_label_for(self, market: Optional[str] = None) -> str:
+        """해당 시장 기준 거래일 라벨.
+
+        휴장일이 시장마다 달라 두 시장 라벨이 다를 수 있다. 예) 추석 연휴
+        2026-09-24·25 에 국내는 3거래일, 미국은 5거래일이다.
+        """
+        days = self.trading_days_for(market)
+        if not days:
             return "거래일 없음"
-        head = self.trading_days[0]
-        tail = self.trading_days[-1]
-        return f"거래일 {head.strftime('%m/%d')}~{tail.strftime('%m/%d')} ({len(self.trading_days)}일)"
+        head = days[0]
+        tail = days[-1]
+        return f"거래일 {head.strftime('%m/%d')}~{tail.strftime('%m/%d')} ({len(days)}일)"
+
+    @property
+    def markets_differ(self) -> bool:
+        """국내/해외 거래일 개수가 다른지 (휴장일 차이)"""
+        return (len(self.trading_days_for(MARKET_KR))
+                != len(self.trading_days_for(MARKET_US)))
 
     @property
     def mode_label(self) -> str:
@@ -160,6 +219,13 @@ class WeeklyPeriod:
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
             "trading_days": [d.isoformat() for d in self.trading_days],
+            # 국내/해외 휴장일이 달라 거래일이 다를 수 있으므로 둘 다 남긴다.
+            "trading_days_domestic": [d.isoformat() for d in self.trading_days_for(MARKET_KR)],
+            "trading_days_foreign": [d.isoformat() for d in self.trading_days_for(MARKET_US)],
+            "trading_label_domestic": self.trading_label_for(MARKET_KR),
+            "trading_label_foreign": self.trading_label_for(MARKET_US),
+            "markets_differ": self.markets_differ,
+            "market": self.market,
             "mode": self.mode,
             "run_date": self.run_date.isoformat() if self.run_date else None,
             "iso_year": self.iso_year,
@@ -182,6 +248,7 @@ class WeeklyPeriod:
                 trading_days=tuple(date.fromisoformat(d) for d in data.get("trading_days", [])),
                 mode=data.get("mode", "week"),
                 run_date=date.fromisoformat(data["run_date"]) if data.get("run_date") else None,
+                market=data.get("market", MARKET_KR),
             )
         except (ValueError, TypeError):
             return None
@@ -192,6 +259,7 @@ class WeeklyPeriod:
         days: Sequence,
         mode: str = MODE_WEEK,
         run_date: Optional[date] = None,
+        market: str = MARKET_KR,
     ) -> Optional["WeeklyPeriod"]:
         """수집된 실제 거래일로 구간 확정 (표시용 권장 경로)
 
@@ -216,6 +284,7 @@ class WeeklyPeriod:
             trading_days=tuple(parsed),
             mode=mode,
             run_date=run_date,
+            market=market,
         )
 
 
@@ -229,14 +298,19 @@ def resolve_period(
     run_date: Optional[date] = None,
     start: Optional[date] = None,
     end: Optional[date] = None,
+    market: str = MARKET_KR,
 ) -> WeeklyPeriod:
     """분석 요청 구간 계산 (수집 요청용)
 
     `start`/`end`를 주면 사용자가 지정한 구간(custom)을 그대로 쓴다.
     둘 다 없으면 요청 시점의 기본 규칙(주간 마감/주중 스냅샷)을 따른다.
+
+    `market` 는 구간의 기준 시장이다. 아직 마감되지 않은 세션을 구간에
+    넣지 않기 위해 사용한다. `market="all"` 처럼 두 시장을 함께 보면
+    마지막 마감 시각이 늦은 시장(미국)을 기준으로 자른다.
     """
     if start or end:
-        return period_for_range(start=start, end=end, run_date=run_date)
+        return period_for_range(start=start, end=end, run_date=run_date, market=market)
 
     base = run_date or date.today()
     if base.weekday() >= 5:
@@ -245,18 +319,20 @@ def resolve_period(
         return WeeklyPeriod(
             start=start,
             end=end,
-            trading_days=tuple(_last_trading_days(min(end, base), TRADING_DAY_COUNT)),
+            trading_days=tuple(_weekdays_in_range(start, end, market)),
             mode=MODE_WEEK,
             run_date=base,
+            market=market,
         )
-    # 평일 -> 요청일까지 최근 5거래일
-    days = _last_trading_days(base, TRADING_DAY_COUNT)
+    # 평일 -> 마감된 최근 5거래일 (아직 장이 끝나지 않은 날은 제외)
+    days = _last_trading_days(last_closed_trading_day(market), TRADING_DAY_COUNT, market)
     return WeeklyPeriod(
         start=days[0],
         end=days[-1],
         trading_days=tuple(days),
         mode=MODE_ROLLING,
         run_date=base,
+        market=market,
     )
 
 
@@ -264,6 +340,7 @@ def period_for_range(
     start: Optional[date] = None,
     end: Optional[date] = None,
     run_date: Optional[date] = None,
+    market: str = MARKET_KR,
 ) -> WeeklyPeriod:
     """사용자가 지정한 시작일~종료일 구간.
 
@@ -298,21 +375,24 @@ def period_for_range(
     return WeeklyPeriod(
         start=lo,
         end=hi,
-        trading_days=tuple(_weekdays_in_range(lo, hi)),
+        trading_days=tuple(_weekdays_in_range(lo, hi, market)),
         mode=MODE_CUSTOM,
         run_date=base,
+        market=market,
     )
 
 
-def period_for_iso_week(year: int, week: int, run_date: Optional[date] = None) -> WeeklyPeriod:
+def period_for_iso_week(year: int, week: int, run_date: Optional[date] = None,
+                        market: str = MARKET_KR) -> WeeklyPeriod:
     """ISO 주차 지정 -> 그 주의 월~일 구간. 예) 2026년 36주차"""
     start, end = _iso_week_window(year, week)
     return WeeklyPeriod(
         start=start,
         end=end,
-        trading_days=tuple(_weekdays_in_range(start, end)),
+        trading_days=tuple(_weekdays_in_range(start, end, market)),
         mode=MODE_CUSTOM,
         run_date=run_date or date.today(),
+        market=market,
     )
 
 
@@ -321,6 +401,7 @@ def period_for_month_week(
     month: int,
     nth: int,
     run_date: Optional[date] = None,
+    market: str = MARKET_KR,
 ) -> WeeklyPeriod:
     """월 내 주차 지정 -> 기준일이 속한 ISO 주 구간.
 
@@ -332,22 +413,25 @@ def period_for_month_week(
     return WeeklyPeriod(
         start=monday,
         end=end,
-        trading_days=tuple(_weekdays_in_range(monday, end)),
+        trading_days=tuple(_weekdays_in_range(monday, end, market)),
         mode=MODE_CUSTOM,
         run_date=run_date or date.today(),
+        market=market,
     )
 
 
-def period_for_week_containing(day: date, run_date: Optional[date] = None) -> WeeklyPeriod:
+def period_for_week_containing(day: date, run_date: Optional[date] = None,
+                               market: str = MARKET_KR) -> WeeklyPeriod:
     """특정 날짜가 속한 ISO 주 구간 (캘린더 주차 클릭용)"""
     monday = day - timedelta(days=day.weekday())
     end = monday + timedelta(days=6)
     return WeeklyPeriod(
         start=monday,
         end=end,
-        trading_days=tuple(_weekdays_in_range(monday, end)),
+        trading_days=tuple(_weekdays_in_range(monday, end, market)),
         mode=MODE_CUSTOM,
         run_date=run_date or date.today(),
+        market=market,
     )
 
 
@@ -432,6 +516,7 @@ def period_from_values(
     month=None,
     week=None,
     run_date: Optional[date] = None,
+    market: str = MARKET_KR,
 ) -> Optional[WeeklyPeriod]:
     """지정값 -> WeeklyPeriod. 지정이 없으면 None.
 
@@ -447,7 +532,7 @@ def period_from_values(
     if _given(raw_end) and end is None:
         raise PeriodError(f"종료일을 YYYY-MM-DD 로 읽을 수 없습니다: {raw_end!r}")
     if start or end:
-        return period_for_range(start=start, end=end, run_date=run_date)
+        return period_for_range(start=start, end=end, run_date=run_date, market=market)
 
     raw_iso_year, raw_iso_week = iso_year, iso_week
     iso_year, iso_week = parse_int(iso_year), parse_int(iso_week)
@@ -459,7 +544,7 @@ def period_from_values(
             raise PeriodError(f"ISO 주차를 정수로 읽을 수 없습니다: {raw_iso_week!r}")
         if not (iso_year and iso_week):
             raise PeriodError("ISO 주차 지정은 연도와 주차를 함께 지정해야 합니다.")
-        return period_for_iso_week(iso_year, iso_week, run_date=run_date)
+        return period_for_iso_week(iso_year, iso_week, run_date=run_date, market=market)
 
     raw_year, raw_month, raw_week = year, month, week
     year, month, week = parse_int(year), parse_int(month), parse_int(week)
@@ -472,7 +557,7 @@ def period_from_values(
             raise PeriodError(f"월 내 주차를 정수로 읽을 수 없습니다: {raw_week!r}")
         if not (year and month and week):
             raise PeriodError("월 내 주차 지정은 연도, 월, 주차를 모두 지정해야 합니다.")
-        return period_for_month_week(year, month, week, run_date=run_date)
+        return period_for_month_week(year, month, week, run_date=run_date, market=market)
 
     return None
 

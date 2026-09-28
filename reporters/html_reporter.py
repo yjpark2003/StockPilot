@@ -7,6 +7,7 @@ from typing import Optional
 from jinja2 import Template
 
 from analyzers.period import WeeklyPeriod, resolve_period
+from analyzers.market_calendar import MARKET_KR, MARKET_US
 
 # data_alignment 키의 한국어 표기
 SECTION_LABELS = {
@@ -133,6 +134,9 @@ class HtmlReporter:
         <header class="brand">
             <h1>{{ year_week_label }} 주간 리포트</h1>
             <p>{{ range_label }} · {{ trading_label }} · {{ mode_label }}</p>
+            {% if markets_differ and (domestic_stocks|length) and (foreign_stocks|length) %}
+            <p class="basis-empty">거래일은 시장별 휴장일을 따릅니다 — 국내 <strong>{{ trading_label_kr }}</strong>, 해외 <strong>{{ trading_label_us }}</strong> (휴장일 차이)</p>
+            {% endif %}
             <p>{{ date }} 자동 분석 결과 | 국내 {{ domestic_stocks|length }}종목, 해외 {{ foreign_stocks|length }}종목</p>
         </header>
 
@@ -154,7 +158,13 @@ class HtmlReporter:
             <div>
                 <h3>⚠️ 구간 거래일 데이터 일부 미수집</h3>
                 <p class="basis-empty">
-                    요청하신 구간의 거래일은 {{ trading_label }} 이지만, 아래 날짜는 소스에 아직 반영되지 않아
+                    {% if markets_differ %}
+                    구간의 거래일은 국내 <strong>{{ trading_label_kr }}</strong>, 해외 <strong>{{ trading_label_us }}</strong> 입니다.
+                    휴장일이 시장마다 달라 개수가 다를 수 있습니다 (예: 추석 연휴에는 국내만 휴장).
+                    그럼에도 아래 날짜는 휴장일이 아니면서 소스에 아직 반영되지 않아
+                    {% else %}
+                    요청하신 구간의 거래일은 <strong>{{ trading_label }}</strong> 인데, 아래 날짜는 휴장일이 아니면서 소스에 아직 반영되지 않아
+                    {% endif %}
                     주가 그래프와 표에서 빠졌습니다. 국내 피드는 보통 1~2거래일 지연됩니다.
                 </p>
                 {% for day, names in price_gaps %}
@@ -892,13 +902,20 @@ class HtmlReporter:
                     collected.append(row["date"])
 
         actual = WeeklyPeriod.from_trading_days(
-            collected, mode=requested.mode, run_date=run_date
+            collected, mode=requested.mode, run_date=run_date,
+            market=requested.market,
         )
         if not actual:
             return requested
 
         # 실제 거래일이 요청 구간 밖(과거/미래)으로 튀면 요청 구간을 신뢰
         if actual.end < requested.start or actual.start > requested.end:
+            return requested
+        # domestic+foreign 를 함께 보면 수집된 날짜는 두 시장의 합집합이라
+        # 구간이 실제 범위를 벗어난다(추석에 국내 3일 + 미국 5일 -> 5일 폭).
+        # 이 경우 요청 구간을 유지한다. 합집합 폭으로 넓히면 리포트 구간이
+        # 국내 기준 구간과 어긋나 '날짜가 안 맞다'고 보인다.
+        if actual.start < requested.start or actual.end > requested.end:
             return requested
         return actual
 
@@ -928,6 +945,9 @@ class HtmlReporter:
             "year_week_label": period.year_week_label,
             "range_label": period.range_label,
             "trading_label": period.trading_label,
+            "trading_label_kr": period.trading_label_for(MARKET_KR),
+            "trading_label_us": period.trading_label_for(MARKET_US),
+            "markets_differ": period.markets_differ,
             "mode_label": period.mode_label,
             "is_custom": period.is_custom,
         }

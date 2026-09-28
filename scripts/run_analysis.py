@@ -20,6 +20,8 @@ from analyzers.period import (
     period_from_namespace,
 )
 from reporters import HtmlReporter
+from analyzers.market_calendar import MARKET_KR, MARKET_US
+from analyzers.market_calendar import MARKET_KR, MARKET_US
 
 
 def load_env():
@@ -80,9 +82,19 @@ async def run_analysis(
     if with_dart:
         print("[DART 공시 데이터 포함]")
 
-    # 분석 구간 결정 (미지정 시 요청일 기준 규칙)
-    period = period or resolve_period()
+    # 분석 구간 결정 (미지정 시 요청일 기준 규칙).
+    # 두 시장을 함께 보면 아직 마감되지 않은 해외 장이 기준이 되므로,
+    # 마감 시각이 늦은 시장(미국)을 구간 기준으로 삼는다.
+    if market == "domestic":
+        period_market = MARKET_KR
+    else:
+        period_market = MARKET_US
+    period = period or resolve_period(market=period_market)
+    period = period.with_market(period_market) if period.market != period_market else period
     print(f"분석 구간: {period.year_week_label} | {period.range_label} | {period.trading_label} ({period.mode_label})")
+    if period.market == MARKET_US:
+        print(f"[해외 기준 구간] 미국 휴장일 반영. 국내 거래일은 {len(period.trading_days_for(MARKET_KR))}일, "
+              f"해외 거래일은 {len(period.trading_days_for(MARKET_US))}일")
     if period.is_custom:
         print("[사용자 지정 구간] 주가/뉴스는 이 구간으로 조회하고, 재무·공매도는 기준일 스냅샷입니다.")
 
