@@ -130,6 +130,26 @@ python3 main.py server --host 0.0.0.0 --port 8000
 ```
 대시보드 주소: http://localhost:8000/dashboard (로그: `logs/dashboard.log`)
 
+#### WSL2 mirrored 모드에서 포트 충돌
+
+`.wslconfig` 에 `networkingMode=mirrored` 가 켜져 있으면 Linux 와 Windows 가
+**포트 공간을 공유**한다. 이때 Windows 쪽에 `TimeWait` 소켓이 남아 있으면
+Linux 의 `ss` 에는 아무것도 보이지 않는데도 서버가 아래처럼 죽는다.
+
+```
+ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000)
+```
+
+원인은 Linux 가 아니라 **Windows 측 점유**다. 확인 방법:
+
+```powershell
+# Windows PowerShell
+Get-NetTCPConnection -LocalPort 8000 | Measure-Object
+```
+
+해결: 다른 포트를 쓰거나(`--port 8001`) 잠시 기다린다. 구동 스크립트는 이
+경우를 감지해 "Windows 측에서 이미 사용 중" 이라고 알려준다.
+
 ### 3. 다른 PC에서 접속 (WSL2 사용 시)
 
 WSL2 환경에서는 포트 포워딩 설정이 필요합니다.

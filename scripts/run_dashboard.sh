@@ -95,6 +95,38 @@ port_in_use() {
     fi
 }
 
+# WSL2 mirrored 모드(networkingMode=mirrored)에서는 Linux 와 Windows 가 포트
+# 공간을 공유한다. 이때 Windows 쪽에 TimeWait 이 남아 있으면 Linux 의 ss 에는
+# 아무것도 보이지 않는데도 bind 가 EADDRINUSE 로 실패한다. 그 경우를 잡아내야
+# "서버가 죽은 이유"를 사용자에게 설명할 수 있다.
+windows_port_in_use() {
+    command -v powershell.exe > /dev/null 2>&1 || return 1
+    local n
+    n="$(timeout 10 powershell.exe -NoProfile -Command \
+        "(Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | Measure-Object).Count" \
+        2> /dev/null | tr -d '\r[:space:]')"
+    [ -n "$n" ] || return 1
+    [ "$n" -gt 0 ] 2> /dev/null
+}
+
+print_port_conflict_hint() {
+    # Linux 쪽에 아무것도 없는데도 bind 가 막혔다면 Windows 측(=mirrored 공유) 문제
+    if ! ss -ltn "sport = :${PORT}" 2> /dev/null | grep -q ":${PORT}"; then
+        if windows_port_in_use; then
+            local n
+            n="$(timeout 10 powershell.exe -NoProfile -Command \
+                "(Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | Measure-Object).Count" \
+                2> /dev/null | tr -d '\r[:space:]')"
+            echo "오류: 포트 ${PORT} bind 실패 — Windows 측에서 이미 사용 중입니다." >&2
+            echo "  (.wslconfig networkingMode=mirrored 이면 Linux/Windows 가 포트를 공유합니다)" >&2
+            echo "  Windows 측 ${PORT} 연결 ${n}개 (대부분 TimeWait). 잠시 후 풀리거나," >&2
+            echo "  다른 포트로 실행하세요:  ./scripts/run_dashboard.sh start --port 8001" >&2
+            return 0
+        fi
+    fi
+    return 1
+}
+
 open_browser() {
     local url="$1"
     if command -v wslview > /dev/null 2>&1; then
@@ -147,6 +179,12 @@ do_start() {
         return 1
     fi
 
+    # WSL2 mirrored 모드에서는 Windows 측 점유가 ss 에 보이지 않는다.
+    # 여기서 먼저 잡아내야 서버를 띄워 놓고 죽는 일이 없다.
+    if ! port_in_use && print_port_conflict_hint; then
+        return 1
+    fi
+
     mkdir -p "$LOG_DIR"
     echo "$(date): 대시보드 서버 시작 (host=${HOST}, port=${PORT})" >> "$LOG_FILE"
 
@@ -169,6 +207,12 @@ do_start() {
     fi
 
     echo "오류: 서버가 정상 응답하지 않습니다. 로그를 확인하세요: $LOG_FILE" >&2
+    if grep -q "address already in use" "$LOG_FILE" 2> /dev/null; then
+        # bind 실패 원인을 그대로 알려준다 (그래야 사용자가 다음 행동을 안다)
+        if ! print_port_conflict_hint; then
+            echo "  원인은 포트 ${PORT} 점유입니다. --port 로 다른 포트를 지정하세요." >&2
+        fi
+    fi
     do_stop > /dev/null 2>&1
     return 1
 }
