@@ -61,8 +61,11 @@ class HtmlReporter:
         .stock-summary:last-of-type { margin-bottom: 0; }
         .stock-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 
-        .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+        /* 탭은 스크롤해도 따라온다. 모바일에서는 탭이 첫 화면 아래로 밀려나
+           '해외가 없는 리포트'처럼 보이므로, 항상 닫을 수 있게 고정한다. */
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; position: sticky; top: 0; z-index: 20; padding: 10px 0; background: var(--bg); }
         .tab { padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; border: 2px solid var(--border); background: var(--surface); font-family: inherit; font-size: 14px; color: var(--text); }
+        .tab .tab-count { font-weight: 500; opacity: .75; font-size: 13px; }
         .tab:hover { border-color: var(--primary); }
         .tab[aria-selected="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 
@@ -198,10 +201,12 @@ class HtmlReporter:
             </div>
         </div>
 
+        {% if domestic_stocks and foreign_stocks %}
         <div class="tabs" role="tablist" aria-label="시장 선택">
-            <button type="button" class="tab active" role="tab" aria-selected="true" aria-controls="domestic" id="tab-domestic" onclick="showTab('domestic')">🇰🇷 국내</button>
-            <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="foreign" id="tab-foreign" onclick="showTab('foreign')">🌍 해외</button>
+            <button type="button" class="tab active" role="tab" aria-selected="true" aria-controls="domestic" id="tab-domestic" onclick="showTab('domestic')">🇰🇷 국내 <span class="tab-count">{{ domestic_stocks|length }}종목</span></button>
+            <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="foreign" id="tab-foreign" onclick="showTab('foreign')">🌍 해외 <span class="tab-count">{{ foreign_stocks|length }}종목</span></button>
         </div>
+        {% endif %}
 
         <div id="domestic" class="tab-content active" role="tabpanel" aria-labelledby="tab-domestic">
             <div class="stock-grid">
@@ -291,7 +296,7 @@ class HtmlReporter:
             </div>
         </div>
 
-        <div id="foreign" class="tab-content" role="tabpanel" aria-labelledby="tab-foreign">
+        <div id="foreign" class="tab-content{{ '' if domestic_stocks else ' active' }}" role="tabpanel" aria-labelledby="tab-foreign">
             <div class="stock-grid">
             {% for stock in foreign_stocks %}
                 <div class="stock-card motion-enter" style="--enter-delay: {{ (loop.index0 * 0.05)|round(2) }}s">
