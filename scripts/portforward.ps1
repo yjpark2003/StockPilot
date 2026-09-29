@@ -6,7 +6,7 @@ param(
     [ValidateSet("setup", "remove", "status", "test")]
     [string]$Action,
 
-    [int]$Port = 8000,
+    [int]$Port = 8001,
 
     [string]$WSLAddress = ""
 )

@@ -114,9 +114,9 @@ python3 main.py analyze --start 2026-09-01 --end 2026-09-05
 
 ### 2. 웹 서버 시작
 ```bash
-python3 main.py server --host 0.0.0.0 --port 8000
+python3 main.py server --host 0.0.0.0 --port 8001
 ```
-브라우저에서 http://localhost:8000 접속 (`--host 0.0.0.0` 이면 같은 네트워크의 다른 PC에서도 접속 가능)
+브라우저에서 http://localhost:8001 접속 (`--host 0.0.0.0` 이면 같은 네트워크의 다른 PC에서도 접속 가능)
 
 종목 관리 대시보드는 별도 스크립트로 편리하게 실행할 수 있습니다.
 ```bash
@@ -124,11 +124,11 @@ python3 main.py server --host 0.0.0.0 --port 8000
 ./scripts/run_dashboard.sh status     # 상태 확인
 ./scripts/run_dashboard.sh stop       # 중지
 ./scripts/run_dashboard.sh restart    # 재시작
-./scripts/run_dashboard.sh --port 8001   # 포트 변경
+./scripts/run_dashboard.sh --port 9000   # 포트 변경 (기본 8001)
 ./scripts/run_dashboard.sh --host 0.0.0.0  # 바인드 주소 변경 (기본 0.0.0.0)
 ./scripts/run_dashboard.sh -f         # 포그라운드 실행
 ```
-대시보드 주소: http://localhost:8000/dashboard (로그: `logs/dashboard.log`)
+대시보드 주소: http://localhost:8001/dashboard (로그: `logs/dashboard.log`)
 
 #### WSL2 mirrored 모드에서 포트 충돌
 
@@ -137,17 +137,30 @@ python3 main.py server --host 0.0.0.0 --port 8000
 Linux 의 `ss` 에는 아무것도 보이지 않는데도 서버가 아래처럼 죽는다.
 
 ```
-ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000)
+ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8001)
 ```
 
 원인은 Linux 가 아니라 **Windows 측 점유**다. 확인 방법:
 
 ```powershell
 # Windows PowerShell
-Get-NetTCPConnection -LocalPort 8000 | Measure-Object
+Get-NetTCPConnection -LocalPort 8001 | Measure-Object
+netsh interface portproxy show all   # 포트포워딩 규칙이 원인인 경우가 많다
 ```
 
-해결: 다른 포트를 쓰거나(`--port 8001`) 잠시 기다린다. 구동 스크립트는 이
+가장 흔한 원인은 **`portforward.bat setup` 으로 등록한 포트포워딩 규칙**이다.
+`netsh interface portproxy add` 로 등록한 규칙은 Windows 가 해당 포트를
+직접 listen 하므로, mirrored 모드에서 Linux 가 같은 포트를 bind 하지 못한다.
+`ss` 에는 아무것도 안 보이지만 서버는 `address already in use` 로 죽는다.
+
+필요 없으면 규칙을 지운다:
+
+```powershell
+netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=0.0.0.0
+```
+
+해결: 다른 포트를 쓰거나(`--port 9000`) 불필요한 규칙을 삭제한다. 구동
+스크립트는 이
 경우를 감지해 "Windows 측에서 이미 사용 중" 이라고 알려준다.
 
 ### 3. 다른 PC에서 접속 (WSL2 사용 시)

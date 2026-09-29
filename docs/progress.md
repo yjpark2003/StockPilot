@@ -167,7 +167,7 @@ python3 scripts/run_analysis.py --market foreign
 python3 scripts/run_analysis.py --market all --with-dart
 
 # 웹 서버 시작
-python3 -m uvicorn server.app:app --host 0.0.0.0 --port 8000
+python3 -m uvicorn server.app:app --host 0.0.0.0 --port 8001
 ```
 
 ### 📝 최근 변경 사항 (2026-08-24)

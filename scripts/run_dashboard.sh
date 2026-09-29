@@ -5,7 +5,7 @@
 #   ./scripts/run_dashboard.sh [start|stop|restart|status] [옵션]
 #
 # 옵션:
-#   -p, --port PORT     사용할 포트 (기본: 8000)
+#   -p, --port PORT     사용할 포트 (기본: 8001)
 #   -H, --host HOST     바인드 주소 (기본: 0.0.0.0)
 #   -f, --foreground    포그라운드 실행 (브라우저 자동 실행 안 함, Ctrl+C로 종료)
 #   -n, --no-browser    브라우저 자동 실행 비활성화
@@ -20,7 +20,7 @@ LOG_FILE="$LOG_DIR/dashboard.log"
 PID_FILE="$LOG_DIR/dashboard.pid"
 
 HOST="0.0.0.0"
-PORT="8000"
+PORT="8001"
 FOREGROUND=0
 OPEN_BROWSER=1
 

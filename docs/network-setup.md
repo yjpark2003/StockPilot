@@ -12,7 +12,7 @@
 ```bash
 # WSL2 터미널에서
 cd ~/work/StockPilot
-python3 main.py server --host 0.0.0.0 --port 8000
+python3 main.py server --host 0.0.0.0 --port 8001
 ```
 
 ### 2. 포트 포워딩 설정
@@ -24,7 +24,7 @@ cd \\wsl$\Ubuntu\home\<username>\work\StockPilot\scripts
 
 ### 3. 다른 PC에서 접속
 ```
-http://[Windows IP]:8000
+http://[Windows IP]:8001
 ```
 
 ---
@@ -38,7 +38,7 @@ WSL2는 기본적으로 NAT 네트워크를 사용하여 호스트 PC와 동일�
 포트 포워딩은 Windows 호스트의 특정 포트로 들어오는 트래픽을 WSL2 내부의 같은 포트로 전달하는 설정입니다.
 
 ```
-[다른 PC] -->> [Windows:8000] -->> [WSL2:8000]
+[다른 PC] -->> [Windows:8001] -->> [WSL2:8001]
 ```
 
 ---
@@ -70,7 +70,7 @@ cd C:\Windows
 ```
 === 설정 완료 ===
   Windows IP: 192.168.1.XXX
-  접속 주소: http://192.168.1.XXX:8000
+  접속 주소: http://192.168.1.XXX:8001
 ```
 
 ### 방법 2: 수동 설정
@@ -86,20 +86,20 @@ hostname -I
 ```powershell
 # Windows PowerShell (관리자)에서
 netsh interface portproxy add v4tov4 `
-    listenport=8000 `
+    listenport=8001 `
     listenaddress=0.0.0.0 `
-    connectport=8000 `
+    connectport=8001 `
     connectaddress=172.x.x.x
 ```
 
 #### 3단계: 방화벽 규칙 추가
 ```powershell
 netsh advfirewall firewall add rule `
-    name="StockServer-Port8000" `
+    name="StockServer-Port8001" `
     dir=in `
     action=allow `
     protocol=TCP `
-    localport=8000
+    localport=8001
 ```
 
 ---
@@ -111,14 +111,14 @@ netsh advfirewall firewall add rule `
 | 명령어 | 설명 |
 |--------|------|
 | `netsh interface portproxy show all` | 현재 포트포워딩 규칙 확인 |
-| `netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=0.0.0.0` | 포트포워딩 규칙 삭제 |
+| `netsh interface portproxy delete v4tov4 listenport=8001 listenaddress=0.0.0.0` | 포트포워딩 규칙 삭제 |
 
 ### 방화벽 관리
 
 | 명령어 | 설명 |
 |--------|------|
-| `netsh advfirewall firewall show rule name="StockServer-Port8000"` | 방화벽 규칙 확인 |
-| `netsh advfirewall firewall delete rule name="StockServer-Port8000"` | 방화벽 규칙 삭제 |
+| `netsh advfirewall firewall show rule name="StockServer-Port8001"` | 방화벽 규칙 확인 |
+| `netsh advfirewall firewall delete rule name="StockServer-Port8001"` | 방화벽 규칙 삭제 |
 
 ### 스크립트 명령어
 
@@ -166,8 +166,8 @@ WSL2를 재시작하면 IP가 변경될 수 있습니다.
 hostname -I
 
 # Windows에서 포트포워딩 재설정
-netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=0.0.0.0
-netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=[새 IP]
+netsh interface portproxy delete v4tov4 listenport=8001 listenaddress=0.0.0.0
+netsh interface portproxy add v4tov4 listenport=8001 listenaddress=0.0.0.0 connectport=8001 connectaddress=[새 IP]
 ```
 
 ### 2. 방화벽 차단
@@ -184,17 +184,17 @@ netsh advfirewall set allprofiles state on
 
 ```bash
 # WSL2에서 서버 상태 확인
-curl http://localhost:8000
+curl http://localhost:8001
 
 # 서버 재시작
-python3 main.py server --host 0.0.0.0 --port 8000
+python3 main.py server --host 0.0.0.0 --port 8001
 ```
 
 ### 4. 포트 충돌
 
 ```powershell
-# 8000 포트 사용 프로세스 확인
-netstat -ano | findstr :8000
+# 8001 포트 사용 프로세스 확인
+netstat -ano | findstr :8001
 
 # 다른 포트 사용
 python3 main.py server --host 0.0.0.0 --port 8001
@@ -213,12 +213,12 @@ python3 main.py server --host 0.0.0.0 --port 8001
 │  │   다른 PC    │    │         Windows PC           │  │
 │  │              │    │  ┌────────────────────────┐  │  │
 │  │  브라우저    │───▶│  │   WSL2 (Ubuntu)       │  │  │
-│  │              │    │  │   172.x.x.x:8000       │  │  │
+│  │              │    │  │   172.x.x.x:8001       │  │  │
 │  │  접속:       │    │  │                        │  │  │
 │  │  WindowsIP  │    │  └────────────────────────┘  │  │
-│  │  :8000      │    │           ▲                   │  │
+│  │  :8001      │    │           ▲                   │  │
 │  │              │    │           │ 포트포워딩        │  │
-│  └──────────────┘    │    0.0.0.0:8000 ───────────┘  │  │
+│  └──────────────┘    │    0.0.0.0:8001 ───────────┘  │  │
 │                      └──────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```

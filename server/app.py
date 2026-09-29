@@ -1047,7 +1047,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
         return {"results": []}
 
 
-def start_server(host: str = "0.0.0.0", port: int = 8000):
+def start_server(host: str = "0.0.0.0", port: int = 8001):
     """서버 시작"""
     uvicorn.run(app, host=host, port=port)
 

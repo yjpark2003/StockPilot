@@ -59,7 +59,7 @@ def main():
     # server 서브커맨드
     server_parser = subparsers.add_parser("server", help="웹 서버 시작")
     server_parser.add_argument("--host", default="0.0.0.0", help="바인드 주소")
-    server_parser.add_argument("--port", type=int, default=8000, help="포트 번호")
+    server_parser.add_argument("--port", type=int, default=8001, help="포트 번호")
 
     # cron 서브커맨드
     cron_parser = subparsers.add_parser("cron", help="cron 설정 안내")
