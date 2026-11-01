@@ -22,6 +22,7 @@ class YfinanceCollector:
         start: Optional[str] = None,
         end: Optional[str] = None,
         days: int = 5,
+        include_live_quote: bool = True,
     ) -> dict:
         """주간 주가 변동 데이터 수집
 
@@ -60,7 +61,8 @@ class YfinanceCollector:
                 if date.fromisoformat(d["date"]).weekday() < 5
             ]
             weekly_data.sort(key=lambda x: x["date"])
-            weekly_data = weekly_data[-days:]
+            if not (start and end):
+                weekly_data = weekly_data[-days:]
 
             if not weekly_data:
                 return self._get_empty_price(ticker)
@@ -79,7 +81,7 @@ class YfinanceCollector:
 
             # 현재가 (info에서 가져오기)
             try:
-                info = stock.info
+                info = stock.info if include_live_quote else {}
                 current_price = info.get("currentPrice") or info.get("regularMarketPrice") or end_price
             except Exception:
                 current_price = end_price
@@ -189,6 +191,7 @@ class YfinanceCollector:
             info = stock.info
 
             return {
+                "stock_type": 'ETF' if info.get('quoteType') == 'ETF' else '',
                 "per": self._format_number(info.get("trailingPE")),
                 "forward_pe": self._format_number(info.get("forwardPE")),
                 "pbr": self._format_number(info.get("priceToBook")),

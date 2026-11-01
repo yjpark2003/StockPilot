@@ -1,0 +1,21 @@
+.manage-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }
+.manage-card { padding:18px; background:var(--surface-subtle); border:1px solid var(--border); border-radius:10px; }
+.manage-card h2 { border:0; padding:0; margin:0 0 8px; font-size:16px; overflow-wrap:anywhere; }
+.manage-card p { color:var(--text-secondary); font-size:12px; line-height:1.7; }
+.manage-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+.manage-delete { background:none; box-shadow:none; color:var(--text-secondary); }
+.manage-delete:hover { color:var(--danger); }
+dialog { margin:auto; width:min(500px,calc(100% - 32px)); max-height:calc(100dvh - 32px); padding:24px; border:1px solid var(--border); border-radius:14px; color:var(--text); background:var(--surface); box-shadow:var(--shadow-lg); }
+dialog::backdrop { background:var(--overlay); }
+.dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.dialog-heading h2 { font-size:20px; }
+dialog label { display:block; font-size:13px; font-weight:600; margin:14px 0 6px; }
+dialog input, dialog select { width:100%; padding:10px; background:var(--surface); color:var(--text); border:1px solid var(--input-border); border-radius:6px; font:inherit; font-size:14px; }
+.dialog-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+#lookup-results { max-height:180px; overflow-y:auto; }
+.lookup-item { display:block; width:100%; text-align:left; border:1px solid var(--border); padding:10px; color:var(--text); background:var(--surface-subtle); cursor:pointer; border-radius:6px; margin-bottom:4px; font:inherit; font-size:13px; }
+.lookup-item small { display:block; color:var(--text-secondary); margin-top:4px; }
+.lookup-item:disabled { opacity:.6; cursor:default; }
+#entry-status { color:var(--danger); font-size:13px; line-height:1.6; margin-top:12px; }
+.manage-toast { position:fixed; bottom:24px; right:24px; max-width:calc(100% - 48px); padding:14px 20px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); box-shadow:var(--shadow-lg); z-index:2000; }
+@media(max-width:700px) { .manage-grid { grid-template-columns:1fr; } dialog { padding:20px; } }

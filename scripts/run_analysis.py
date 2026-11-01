@@ -21,7 +21,6 @@ from analyzers.period import (
 )
 from reporters import HtmlReporter
 from analyzers.market_calendar import MARKET_KR, MARKET_US
-from analyzers.market_calendar import MARKET_KR, MARKET_US
 
 
 def load_env():
@@ -130,6 +129,23 @@ async def run_analysis(
             foreign_stocks = foreign_config.get("foreign_stocks", [])
             print(f"\n[해외] 분석 대상: {', '.join([s['name'] for s in foreign_stocks])}")
             all_results["foreign"] = await analyzer.analyze_all(foreign_stocks, "foreign", current_idx, total_stocks)
+
+        # Broad market reference indexes, collected for the exact same period.
+        all_results['benchmarks'] = {}
+        references = []
+        if market in ('all', 'domestic'):
+            references.extend([('kospi', '^KS11', 'KOSPI'), ('kosdaq', '^KQ11', 'KOSDAQ')])
+        if market in ('all', 'foreign'):
+            references.append(('us', '^GSPC', 'S&P 500'))
+        for key, ticker, label in references:
+            try:
+                price = await analyzer.yfinance.get_weekly_price(
+                    ticker, start=period.start.isoformat(), end=period.end.isoformat(),
+                    include_live_quote=False,
+                )
+                all_results['benchmarks'][key] = {'name': label, 'ticker': ticker, **price}
+            except Exception as exc:
+                all_results['benchmarks'][key] = {'name': label, 'error': str(exc)}
 
         # 리포트 생성
         output_dir = reporter.generate(all_results, period=period)

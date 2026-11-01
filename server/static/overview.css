@@ -1,0 +1,56 @@
+.overview { max-width: 1360px; padding-top: 32px; }
+.overview-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:24px; }
+.overview-heading h1 { font-size:30px; letter-spacing:-1px; }
+.eyebrow { font-size:13px; color:var(--text-secondary); margin-bottom:6px; }
+.period-bar { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:22px; }
+.period-bar label { font-size:14px; font-weight:600; }
+.period-bar select { max-width:100%; }
+.period-bar .muted { font-size:12px; }
+.overview select, .overview input { font:inherit; font-size:13px; padding:10px 12px; border:1px solid var(--input-border); border-radius:8px; background:var(--surface); color:var(--text); min-width:0; }
+.summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.summary-card { padding:22px; border:1px solid var(--border); background:var(--surface); border-radius:12px; }
+.summary-card span { display:block; color:var(--text-secondary); font-size:13px; }
+.summary-card strong { display:block; margin-top:8px; font-size:32px; font-variant-numeric:tabular-nums; }
+.data-note { font-size:12px; color:var(--text-secondary); line-height:1.7; margin:12px 0; }
+.highlights { display:flex; flex-wrap:wrap; gap:12px; margin:20px 0; }
+.highlight { flex:1 1 240px; border-left:3px solid var(--primary); padding:12px 16px; background:var(--surface); border-radius:0 8px 8px 0; font-size:14px; }
+.highlight span { color:var(--text-secondary); display:block; font-size:12px; margin-bottom:5px; }
+.comparison .section-header h2 { border:0; padding:0; margin:0; }
+.comparison .section-header a { font-size:13px; white-space:nowrap; }
+.overview-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.market-tabs { display:flex; gap:4px; }
+.overview-toolbar input { flex:1 1 180px; }
+.comparison-table { overflow-x:auto; }
+.comparison-table table { min-width:900px; }
+.comparison-table th { white-space:nowrap; padding:12px 10px; font-size:12px; }
+.comparison-table td { padding:16px 10px; font-variant-numeric:tabular-nums; vertical-align:middle; }
+.stock-identity a, .stock-identity strong { font-weight:600; display:block; max-width:240px; overflow-wrap:anywhere; }
+.stock-identity small, .cell-secondary { display:block; color:var(--text-secondary); font-size:11px; margin-top:5px; }
+.sparkline { width:100px; height:32px; display:block; }
+.status-pill { display:inline-block; font-size:11px; border-radius:6px; padding:5px 7px; border:1px solid var(--border); white-space:nowrap; }
+.status-pill.incomplete, .status-pill.failed { color:var(--danger); background:color-mix(in srgb,var(--danger) 8%,transparent); }
+.status-pill.insufficient { color:var(--text-secondary); }
+.bottom-grid { display:grid; grid-template-columns:1.5fr 1fr; gap:20px; }
+.overview-story { padding:14px 0; border-bottom:1px solid var(--divider); line-height:1.6; font-size:14px; }
+.overview-story small { display:block; color:var(--text-secondary); font-size:12px; margin-top:5px; }
+.notice { padding:14px 16px; border:1px solid var(--border); border-radius:8px; margin-bottom:18px; line-height:1.7; font-size:13px; background:var(--surface); }
+@media(max-width:700px) {
+  .overview { padding-top:20px; }
+  .overview-heading h1 { font-size:25px; }
+  .summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .summary-card { padding:16px; }
+  .summary-card strong { font-size:26px; }
+  .bottom-grid { grid-template-columns:1fr; gap:0; }
+  .comparison-table { overflow:visible; }
+  .comparison-table table { min-width:0; }
+  .comparison-table thead { display:none; }
+  .comparison-table tbody { display:grid; gap:12px; }
+  .comparison-table tr { display:grid; grid-template-columns:1fr 1fr; padding:12px; background:var(--surface-subtle); border:1px solid var(--border); border-radius:10px; }
+  .comparison-table td { display:block; border:0; padding:8px; font-size:13px; }
+  .comparison-table td::before { content:attr(data-label); display:block; color:var(--text-secondary); font-size:11px; margin-bottom:6px; }
+  .comparison-table td:first-child { grid-column:1/-1; }
+  .comparison-table td:first-child::before { display:none; }
+  .stock-identity a, .stock-identity strong { max-width:none; }
+  .overview-toolbar input { flex-basis:100%; }
+  .period-bar select { width:100%; }
+}

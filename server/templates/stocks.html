@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StockPilot · 종목 관리</title>
+<link rel="stylesheet" href="/static/theme.css?v=20261101"><link rel="stylesheet" href="/static/overview.css"><link rel="stylesheet" href="/static/stocks.css">{{ theme_init|safe }}<script defer src="/static/stocks.js"></script></head>
+<body>{{ navigation|safe }}
+<main class="container overview">
+  <div class="overview-heading"><div><p class="eyebrow">분석할 관심 종목을 관리하세요</p><h1>종목 관리</h1></div><button type="button" class="btn btn-primary" id="open-add">+ 종목 추가</button></div>
+  <p class="data-note">변경된 종목 목록은 다음 분석부터 반영됩니다. 기존 리포트는 당시 결과를 유지합니다.</p>
+  <section class="section">
+    <div class="overview-toolbar"><label class="sr-only" for="manage-query">등록 종목 검색</label><input id="manage-query" type="search" placeholder="등록된 종목명 또는 코드 검색"><label class="sr-only" for="manage-market">시장</label><select id="manage-market"><option value="all">전체 시장</option><option value="domestic">국내</option><option value="foreign">해외</option></select><label class="sr-only" for="manage-type">유형</label><select id="manage-type"><option value="all">모든 유형</option><option value="ETF">ETF</option><option value="stock">개별·기타</option></select><label class="sr-only" for="manage-sort">정렬</label><select id="manage-sort"><option value="name">종목명 순</option><option value="code">코드 순</option></select></div>
+    <p id="manage-count" class="data-note" aria-live="polite">불러오는 중…</p>
+    <div id="stock-list" class="manage-grid"></div><div id="manage-status" role="status" aria-live="polite"></div>
+  </section>
+</main>
+<dialog id="stock-dialog" aria-labelledby="dialog-title">
+  <form id="stock-form">
+    <div class="dialog-heading"><h2 id="dialog-title">종목 추가</h2><button type="button" class="btn btn-secondary" id="close-dialog" aria-label="닫기">×</button></div>
+    <label for="entry-market">시장</label><select id="entry-market"><option value="domestic">국내</option><option value="foreign">해외</option></select>
+    <div id="lookup-section"><label for="lookup-query">종목 검색</label><input id="lookup-query" type="search" placeholder="종목명 또는 코드 입력" autocomplete="off"><p id="lookup-status" class="data-note" role="status" aria-live="polite"></p><div id="lookup-results"></div><p class="data-note">검색 결과를 선택하거나 아래에 직접 입력하세요.</p></div>
+    <label for="entry-code" id="entry-code-label">종목코드</label><input id="entry-code" required maxlength="20" autocomplete="off">
+    <label for="entry-name">종목명</label><input id="entry-name" required maxlength="120" autocomplete="off">
+    <label for="entry-exchange">거래소</label><input id="entry-exchange" required maxlength="30" placeholder="KOSPI / KOSDAQ / NASDAQ / NYSE">
+    <div id="currency-field"><label for="entry-currency">통화</label><input id="entry-currency" required maxlength="3" pattern="[A-Za-z]{3}" value="USD"></div>
+    <label for="entry-type">상품 유형</label><select id="entry-type"><option value="">개별·기타</option><option value="ETF">ETF</option></select>
+    <p id="entry-status" role="status" aria-live="polite"></p><div class="dialog-actions"><button type="button" class="btn btn-secondary" id="cancel-dialog">취소</button><button type="submit" class="btn btn-primary" id="save-stock">추가</button></div>
+  </form>
+</dialog>
+<div id="manage-toast" class="manage-toast" role="status" aria-live="polite" hidden></div>
+{{ theme_script|safe }}</body></html>

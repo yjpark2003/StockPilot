@@ -185,9 +185,9 @@ def _render_nav(year: int, month: int) -> str:
     py, pm = _shift_month(year, month, -1)
     ny, nm = _shift_month(year, month, 1)
     return f"""
-        <a class="cal-arrow" href="/?y={py}&m={pm}" rel="prev" aria-label="이전 달">‹</a>
+        <a class="cal-arrow" href="/history?y={py}&m={pm}" rel="prev" aria-label="이전 달">‹</a>
         <span class="cal-title">{year}년 {month}월</span>
-        <a class="cal-arrow" href="/?y={ny}&m={nm}" rel="next" aria-label="다음 달">›</a>
+        <a class="cal-arrow" href="/history?y={ny}&m={nm}" rel="next" aria-label="다음 달">›</a>
     """
 
 

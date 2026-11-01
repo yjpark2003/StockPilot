@@ -157,7 +157,7 @@ class WeeklyAnalyzer:
         # 국내 종목은 .KS 접미사 추가
         start = self.period.start.isoformat()
         end = self.period.end.isoformat()
-        ticker_ks = f"{code}.KS"
+        ticker_ks = f"{code}.KQ" if stock.get('market', '').upper() == 'KOSDAQ' else f"{code}.KS"
         price_task = self.yfinance.get_weekly_price(
             ticker_ks, "KRW", start=start, end=end
         )
@@ -235,7 +235,7 @@ class WeeklyAnalyzer:
             "name": name,
             "market": stock.get("market", ""),
             "market_type": "domestic",
-            "stock_type": stock.get("type", ""),
+            "stock_type": stock.get("type") or ('ETF' if stock.get('market') == 'ETF' else ''),
             "currency": "KRW",
             "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "price": price_data,
@@ -315,6 +315,7 @@ class WeeklyAnalyzer:
 
         return {
             "code": ticker,
+            "stock_type": stock.get("type") or financial_data.get('stock_type', ''),
             "name": name,
             "market": stock.get("market", ""),
             "market_type": "foreign",
@@ -388,11 +389,11 @@ class WeeklyAnalyzer:
             rate = price_data["change_rate"]
             span = "해당 구간" if self.period.is_custom else "지난 1주간"
             if rate > 5:
-                points.append(f"{span} {rate:.1f}% 상승으로 강세 지속")
+                points.append(f"{span} {rate:.1f}% 상승")
             elif rate > 0:
                 points.append(f"{span} {rate:.1f}% 소폭 상승")
             elif rate < -5:
-                points.append(f"{span} {abs(rate):.1f}% 하락으로 약세 지속")
+                points.append(f"{span} {abs(rate):.1f}% 하락")
             elif rate < 0:
                 points.append(f"{span} {abs(rate):.1f}% 소폭 하락")
             else:

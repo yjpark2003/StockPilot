@@ -8,6 +8,8 @@ from jinja2 import Template
 
 from analyzers.period import WeeklyPeriod, resolve_period
 from analyzers.market_calendar import MARKET_KR, MARKET_US
+from reporters.results import write_results
+from server.ui import navigation
 
 # data_alignment 키의 한국어 표기
 SECTION_LABELS = {
@@ -31,7 +33,7 @@ class HtmlReporter:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ year_week_label }} 주간 주식 분석 리포트 - {{ date }}</title>
     <script defer src="/static/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="/static/theme.css">
+    <link rel="stylesheet" href="/static/theme.css?v=20261101">
     <script>
     (function () {
         var stored = null;
@@ -126,12 +128,7 @@ class HtmlReporter:
 <body>
 {% macro basis_badge(align, name) %}{% if align and align.get(name) %}<span class="basis-badge basis-{{ align[name].basis }}" title="{{ align[name].note or align[name].label }}">{{ align[name].label }}</span>{% endif %}{% endmacro %}
 {% macro basis_note(align, name) %}{% if align and align.get(name) and align[name].note %}<p class="basis-note">{{ align[name].note }}</p>{% endif %}{% endmacro %}
-    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
-    <div class="floating-action">
-        <a href="/api/run" class="btn btn-primary">전체 분석 실행</a>
-        <a href="/api/run?with_dart=true" class="btn btn-secondary">DART 포함</a>
-        <a href="/" class="btn btn-secondary">새로고침</a>
-    </div>
+    {{ navigation|safe }}
 
     <div class="container">
         <header class="brand">
@@ -142,6 +139,15 @@ class HtmlReporter:
             {% endif %}
             <p>{{ date }} 자동 분석 결과 | 국내 {{ domestic_stocks|length }}종목, 해외 {{ foreign_stocks|length }}종목</p>
         </header>
+
+        {% if failed_stocks %}
+        <section class="warn-bar" aria-label="수집 실패 종목">
+            <h3>수집 실패 {{ failed_stocks|length }}종목</h3>
+            {% for stock in failed_stocks %}
+            <p><strong>{{ stock.name }}</strong> ({{ stock.code }}) — {{ stock.error or '구간 주가를 수집하지 못했습니다.' }}</p>
+            {% endfor %}
+        </section>
+        {% endif %}
 
         {% if is_custom %}
         <div class="info-bar">
@@ -182,7 +188,7 @@ class HtmlReporter:
                 <h3>📋 국내 종목</h3>
                 <div class="stock-tags">
                     {% for stock in domestic_stocks %}
-                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
+                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }}">
                         {{ stock.name }} {{ '%+.1f'|format(stock.price.change_rate) }}%
                     </span>
                     {% endfor %}
@@ -193,7 +199,7 @@ class HtmlReporter:
                 <h3>🌍 해외 종목</h3>
                 <div class="stock-tags">
                     {% for stock in foreign_stocks %}
-                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else 'negative' }}">
+                    <span class="chip {{ 'positive' if stock.price.change_rate > 0 else ('negative' if stock.price.change_rate < 0 else 'neutral') }}">
                         {{ stock.name }} {{ '%+.1f'|format(stock.price.change_rate) }}%
                     </span>
                     {% endfor %}
@@ -218,7 +224,7 @@ class HtmlReporter:
                         {{ '%+.2f'|format(stock.price.change_rate) }}%
                     </div>
                     <div class="price-info">
-                        현재가: ₩{{ '{:,.0f}'.format(stock.price.current_price) }}
+                        마지막 종가: ₩{{ '{:,.0f}'.format(stock.price.end_price) }}
                     </div>
 
                     <div class="chart-container">
@@ -282,7 +288,7 @@ class HtmlReporter:
                     </div>
 
                     <div class="key-points callout">
-                        <h3>주목 포인트</h3>
+                        <h3>구간 관측 요약</h3>
                         <ul>
                         {% for point in stock.key_points %}
                             <li>{{ point }}</li>
@@ -306,7 +312,7 @@ class HtmlReporter:
                         {{ '%+.2f'|format(stock.price.change_rate) }}%
                     </div>
                     <div class="price-info">
-                        현재가: ${{ '{:,.2f}'.format(stock.price.current_price) }}
+                        마지막 종가: ${{ '{:,.2f}'.format(stock.price.end_price) }}
                     </div>
 
                     <div class="chart-container">
@@ -348,7 +354,7 @@ class HtmlReporter:
                     </div>
 
                     <div class="key-points callout">
-                        <h3>주목 포인트</h3>
+                        <h3>구간 관측 요약</h3>
                         <ul>
                         {% for point in stock.key_points %}
                             <li>{{ point }}</li>
@@ -538,7 +544,7 @@ class HtmlReporter:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ stock.name }} {{ year_week_label }} 주간 분석 - {{ date }}</title>
     <script defer src="/static/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="/static/theme.css">
+    <link rel="stylesheet" href="/static/theme.css?v=20261101">
     <script>
     (function () {
         var stored = null;
@@ -593,7 +599,7 @@ class HtmlReporter:
 <body>
 {% macro basis_badge(align, name) %}{% if align and align.get(name) %}<span class="basis-badge basis-{{ align[name].basis }}" title="{{ align[name].note or align[name].label }}">{{ align[name].label }}</span>{% endif %}{% endmacro %}
 {% macro basis_note(align, name) %}{% if align and align.get(name) and align[name].note %}<p class="basis-note">{{ align[name].note }}</p>{% endif %}{% endmacro %}
-    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
+    {{ navigation|safe }}
     <div class="container motion-settle">
         <header class="brand">
             <a href="index.html" class="back">← 목록으로</a>
@@ -605,19 +611,19 @@ class HtmlReporter:
             <h2>주가 정보</h2>
             <div class="price-grid">
                 <div class="price-item">
-                    <div class="label">현재가</div>
-                    <div class="value">{{ '₩{:,.0f}'.format(stock.price.current_price) if stock.currency == 'KRW' else '${:,.2f}'.format(stock.price.current_price) }}</div>
+                    <div class="label">마지막 종가</div>
+                    <div class="value">{{ '₩{:,.0f}'.format(stock.price.end_price) if stock.currency == 'KRW' else '${:,.2f}'.format(stock.price.end_price) }}</div>
                 </div>
                 <div class="price-item">
-                    <div class="label">주간 변동률</div>
-                    <div class="value {{ 'pos-strong' if stock.price.change_rate > 0 else 'neg-strong' }} rate-anim" data-rate="{{ stock.price.change_rate }}">{{ '%+.2f'|format(stock.price.change_rate) }}%</div>
+                    <div class="label">구간 등락률</div>
+                    <div class="value {{ 'pos-strong' if stock.price.change_rate > 0 else ('neg-strong' if stock.price.change_rate < 0 else 'neutral-sign') }} rate-anim" data-rate="{{ stock.price.change_rate }}">{{ '%+.2f'|format(stock.price.change_rate) }}%</div>
                 </div>
                 <div class="price-item">
-                    <div class="label">주간 시작가</div>
+                    <div class="label">구간 첫 종가</div>
                     <div class="value">{{ '₩{:,.0f}'.format(stock.price.start_price) if stock.currency == 'KRW' else '${:,.2f}'.format(stock.price.start_price) }}</div>
                 </div>
                 <div class="price-item">
-                    <div class="label">주간 종가</div>
+                    <div class="label">구간 마지막 종가</div>
                     <div class="value">{{ '₩{:,.0f}'.format(stock.price.end_price) if stock.currency == 'KRW' else '${:,.2f}'.format(stock.price.end_price) }}</div>
                 </div>
             </div>
@@ -767,7 +773,7 @@ class HtmlReporter:
 
         <div class="section">
             <div class="key-points callout">
-                <h3>앞으로 1주간 주목 포인트</h3>
+                <h3>구간 관측 요약</h3>
                 <ul>
                 {% for point in stock.key_points %}
                     <li>{{ point }}</li>
@@ -840,7 +846,7 @@ class HtmlReporter:
     document.addEventListener('themechange', function () { buildDetailChart(); });
     </script>
     <script>
-    // 저작된 모먼트 연속: 주간 변동률 카운트 (prefers-reduced-motion 시 정적 유지)
+    // 저작된 모먼트 연속: 구간 등락률 카운트 (prefers-reduced-motion 시 정적 유지)
     (function () {
         var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (reduce) return;
@@ -959,10 +965,11 @@ class HtmlReporter:
 
         output_dir = os.path.join(self.report_dir, date_str)
         os.makedirs(output_dir, exist_ok=True)
+        write_results(output_dir, all_results)
 
         # 실패한 종목은 템플릿이 price/news 를 요구하므로 렌더링에서 제외
         def usable(stocks: list) -> list:
-            return [s for s in stocks if "error" not in s and s.get("price")]
+            return [s for s in stocks if "error" not in s and (s.get("price") or {}).get("weekly_data")]
 
         raw_domestic = all_results.get("domestic", [])
         raw_foreign = all_results.get("foreign", [])
@@ -1002,12 +1009,15 @@ class HtmlReporter:
         price_gaps = sorted(missing_by_day.items())
 
         # 인덱스 페이지 생성
-        index_template = Template(self.INDEX_TEMPLATE)
+        index_template = Template(self.INDEX_TEMPLATE, autoescape=True)
         index_html = index_template.render(
             domestic_stocks=domestic_stocks,
             foreign_stocks=foreign_stocks,
             date=date_str,
+            navigation=navigation('history'),
             price_gaps=price_gaps,
+            failed_stocks=[s for s in raw_domestic + raw_foreign
+                           if "error" in s or not (s.get("price") or {}).get("weekly_data")],
             **period_ctx,
         )
         index_path = os.path.join(output_dir, "index.html")
@@ -1016,13 +1026,13 @@ class HtmlReporter:
         print(f"인덱스 페이지 생성: {index_path}")
 
         # 종목별 상세 페이지 생성
-        detail_template = Template(self.DETAIL_TEMPLATE)
+        detail_template = Template(self.DETAIL_TEMPLATE, autoescape=True)
 
         # 종목별 상세 (국내/해외)
         for stocks, prefix in ((domestic_stocks, "domestic"), (foreign_stocks, "foreign")):
             for stock in stocks:
                 detail_html = detail_template.render(
-                    stock=stock, date=date_str, SECTION_LABELS=SECTION_LABELS, **period_ctx
+                    stock=stock, date=date_str, SECTION_LABELS=SECTION_LABELS, navigation=navigation('history'), **period_ctx
                 )
                 detail_path = os.path.join(output_dir, f"{prefix}_{stock['code']}.html")
                 with open(detail_path, "w", encoding="utf-8") as f:

@@ -7,8 +7,10 @@ from datetime import date
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from server.ui import navigation
 import uvicorn
 
 app = FastAPI(title="주간 주식 분석 리포트")
@@ -72,21 +74,41 @@ analysis_progress = {
     "status": "idle",
     "message": "",
     "period": None,
+    "report_url": None,
 }
 
 # 종목 추가/삭제 요청 모델
 class DomesticStockRequest(BaseModel):
-    code: str
-    name: str
+    code: str = Field(pattern=r'^\d{6}$')
+    name: str = Field(min_length=1, max_length=120)
     market: str = "KOSPI"
     type: Optional[str] = None
 
+    @field_validator('name', 'market')
+    @classmethod
+    def trim_text(cls, value):
+        if not value.strip():
+            raise ValueError('빈 값은 사용할 수 없습니다.')
+        return value.strip()
+
 class ForeignStockRequest(BaseModel):
-    ticker: str
-    name: str
+    ticker: str = Field(pattern=r'^[A-Z0-9][A-Z0-9.\-^=]{0,19}$')
+    name: str = Field(min_length=1, max_length=120)
     market: str = "NASDAQ"
-    currency: str = "USD"
+    currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
     type: Optional[str] = None
+
+    @field_validator('ticker', 'currency', mode='before')
+    @classmethod
+    def uppercase(cls, value):
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @field_validator('name', 'market')
+    @classmethod
+    def trim_text(cls, value):
+        if not value.strip():
+            raise ValueError('빈 값은 사용할 수 없습니다.')
+        return value.strip()
 
 
 def load_stock_config():
@@ -142,6 +164,26 @@ def run_panel_options(today: date) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def root(y: Optional[str] = None, m: Optional[str] = None):
+    if y is not None or m is not None:
+        return await history(y, m)
+    from server.theme import THEME_INIT_SCRIPT, THEME_TOGGLE_SCRIPT
+    environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), 'templates')),
+                              autoescape=select_autoescape(['html']))
+    return environment.get_template('overview.html').render(
+        navigation=navigation('overview'), theme_init=THEME_INIT_SCRIPT, theme_script=THEME_TOGGLE_SCRIPT)
+
+
+@app.get('/api/overview')
+async def overview_data(report_date: Optional[str] = Query(None, regex=r'^\d{4}-\d{2}-\d{2}$')):
+    from server.overview import load_overview
+    data = load_overview(REPORTS_DIR, report_date, load_stock_config())
+    if report_date and data is None:
+        raise HTTPException(status_code=404, detail='리포트를 찾을 수 없습니다.')
+    return data
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def history(y: Optional[str] = None, m: Optional[str] = None):
     """메인 페이지 - 연도/주차 캘린더 형태의 주간 리포트 목록"""
     from server.report_calendar import (
         CALENDAR_CSS,
@@ -182,7 +224,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>주간 주식 분석 리포트</title>
-    <link rel="stylesheet" href="/static/theme.css">
+    <link rel="stylesheet" href="/static/theme.css?v=20261101">
     {THEME_INIT_SCRIPT}
     <style>
         .container {{ max-width: 960px; }}
@@ -220,13 +262,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
     </style>
 </head>
 <body>
-    <div class="floating-action">
-        <a href="/run-analysis?market=all" class="btn btn-green">전체 분석</a>
-        <a href="/run-analysis?market=domestic" class="btn btn-blue">국내</a>
-        <a href="/run-analysis?market=foreign" class="btn btn-purple">해외</a>
-        <a href="/dashboard" class="btn btn-blue">종목 관리</a>
-    </div>
-    {THEME_TOGGLE_BTN}
+    {navigation('history')}
 
     <div class="container">
         <header class="brand">
@@ -245,7 +281,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
             </div>
         </div>
 
-        <div class="run-panel">
+        <div class="run-panel" id="analysis">
             <h2>🎯 분석 구간 지정</h2>
             <p class="hint">
                 주가는 지정한 구간으로 정확히 조회합니다. 뉴스는 발행일이 구간 안인 기사만 담고,
@@ -286,6 +322,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
                     </div>
                 </div>
             </details>
+            <label class="data-note" style="display:block;margin-top:12px;"><input type="checkbox" id="run-dart"> DART 공시 포함 (API 키 설정 필요)</label>
             <div class="run-actions">
                 <button type="button" class="btn btn-green" id="run-go">이 구간 분석 실행</button>
                 <a href="/run-analysis?market=all" class="btn btn-secondary" id="run-default">기본 구간으로 실행</a>
@@ -296,7 +333,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         <div class="cal-head">
             <h2>📅 주간 리포트 캘린더</h2>
             <div class="cal-meta">
-                <select class="year-picker" onchange="location.href='/?y={{this.value}}&m={view_month}'" aria-label="연도 선택">
+                <select class="year-picker" onchange="location.href='/history?y='+this.value+'&m={view_month}'" aria-label="연도 선택">
                     {year_options}
                 </select>
                 <span>총 {total_reports}건</span>
@@ -325,11 +362,14 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         var elGo = document.getElementById('run-go');
         var elDefault = document.getElementById('run-default');
         var elPreview = document.getElementById('run-preview');
+        var elDart = document.getElementById('run-dart');
+        var previewRequest = 0;
         if (!elYear || !elGo) return;
 
         // 날짜 입력이 비어 있으면 연/월/주차, 채워져 있으면 날짜 범위를 쓴다
         function params() {{
             var q = ['market=' + encodeURIComponent(elMarket.value)];
+            if (elDart.checked) q.push('with_dart=true');
             if (elStart.value || elEnd.value) {{
                 if (elStart.value) q.push('start=' + elStart.value);
                 if (elEnd.value) q.push('end=' + elEnd.value);
@@ -343,6 +383,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
 
         function render(data) {{
             if (!data) return;
+            elGo.disabled = false;
             elPreview.className = 'run-preview' + (data.is_custom ? ' is-custom' : '');
             // 휴장일이 시장마다 달라 거래일 개수가 다를 수 있다(추석 등).
             // 선택한 시장의 거래일을 보여주되, 두 시장이 다르면 둘 다 알린다.
@@ -363,16 +404,23 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         }}
 
         function fail(text) {{
+            elGo.disabled = true;
             elPreview.className = 'run-preview';
             elPreview.textContent = text;
         }}
 
         function refresh() {{
+            var request = ++previewRequest;
+            if (elStart.value && elEnd.value && elEnd.value < elStart.value) {{
+                fail('종료일은 시작일 이후로 선택해주세요.');
+                return;
+            }}
             fail('구간 확인 중...');
             fetch('/api/period/preview?' + params())
                 .then(function (r) {{ return r.ok ? r.json() : r.json().then(function (e) {{ throw e; }}); }})
-                .then(render)
+                .then(function (data) {{ if (request === previewRequest) render(data); }})
                 .catch(function (e) {{
+                    if (request !== previewRequest) return;
                     fail((e && e.detail) ? e.detail : '구간을 읽을 수 없습니다.');
                 }});
         }}
@@ -390,7 +438,7 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
         }});
         elDefault.addEventListener('click', function (e) {{
             e.preventDefault();
-            location.href = '/run-analysis?market=' + encodeURIComponent(elMarket.value);
+            location.href = '/run-analysis?market=' + encodeURIComponent(elMarket.value) + (elDart.checked ? '&with_dart=true' : '');
         }});
 
         refresh();
@@ -404,9 +452,24 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
 @app.get("/reports/{date}/{filename}")
 async def serve_report(date: str, filename: str):
     """리포트 파일 서빙"""
+    import re
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date) or not re.fullmatch(r'[\w.\-^=]+\.html', filename):
+        raise HTTPException(status_code=404, detail='리포트를 찾을 수 없습니다.')
     file_path = os.path.join(REPORTS_DIR, date, filename)
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="text/html")
+    if os.path.isfile(file_path):
+        with open(file_path, encoding='utf-8') as report:
+            html = report.read()
+        # Old HTML reports receive the same navigation without rewriting archives.
+        if 'class="site-header"' not in html:
+            import bs4
+            soup = bs4.BeautifulSoup(html, 'html.parser')
+            for item in soup.select('.floating-action, .theme-toggle'):
+                item.decompose()
+            if soup.body:
+                soup.body.insert(0, bs4.BeautifulSoup(navigation('history'), 'html.parser'))
+            html = str(soup)
+        html = html.replace('/static/theme.css"', '/static/theme.css?v=20261101"')
+        return HTMLResponse(html)
     return HTMLResponse("<h1>404 - 리포트를 찾을 수 없습니다</h1>", status_code=404)
 
 
@@ -508,6 +571,7 @@ async def run_analysis_endpoint(
     analysis_progress["current_stock"] = ""
     analysis_progress["message"] = "분석 준비 중..."
     analysis_progress["period"] = period.to_dict() if period else None
+    analysis_progress['report_url'] = None
 
     # 종목 수 계산
     total_stocks = 0
@@ -530,7 +594,8 @@ async def run_analysis_endpoint(
                 analysis_progress["message"] = status
 
             # 분석 실행 (진행률 콜백 + 구간 전달)
-            await run_analysis(market, with_dart, progress_callback, period=period)
+            output_dir = await run_analysis(market, with_dart, progress_callback, period=period)
+            analysis_progress['report_url'] = f'/reports/{os.path.basename(output_dir)}/index.html'
             analysis_progress["status"] = "completed"
             analysis_progress["message"] = "분석 완료!"
             analysis_progress["current"] = analysis_progress["total"]
@@ -587,7 +652,7 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
     <meta charset="UTF-8">
     <title>분석 진행 중...</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/static/theme.css">
+    <link rel="stylesheet" href="/static/theme.css?v=20261101">
     <script>
     (function () {
         var stored = null;
@@ -597,8 +662,8 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
     })();
     </script>
     <style>
-        body { padding: 50px; text-align: center; }
-        .container { max-width: 600px; margin: 0 auto; background: var(--surface); padding: 40px; border-radius: 12px; box-shadow: var(--shadow-md); }
+        body { text-align: center; }
+        .container { max-width: 600px; width:calc(100% - 32px); margin: 32px auto; background: var(--surface); padding: 24px; border-radius: 12px; box-shadow: var(--shadow); }
         h1 { color: var(--primary); margin-bottom: 20px; }
         .stock-name { font-size: 24px; color: var(--primary); font-weight: 600; margin: 10px 0; }
         .run-period { margin: 0 auto 18px; padding: 10px 14px; max-width: 460px; font-size: 14px; color: var(--text-secondary); background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 8px; }
@@ -615,7 +680,7 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
     </style>
 </head>
 <body>
-    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="테마 전환">🌓</button>
+    PROGRESS_NAV
     <div class="container">
         <h1>MARKET_LABEL 종목 분석DART_TEXT</h1>
         PERIOD_HTML
@@ -630,7 +695,8 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
         
         <div class="complete" id="complete">
             <p style="font-size: 18px; color: var(--success);">분석 완료!</p>
-            <a href="/" class="btn btn-primary">메인으로 돌아가기</a>
+            <a href="/" class="btn btn-primary" id="result-report">생성된 리포트 보기</a>
+            <a href="/" class="btn btn-secondary">동향으로 돌아가기</a>
         </div>
     </div>
     
@@ -657,6 +723,7 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
                 var dot = document.querySelector('#status-row .status-dot');
                 if (dot) dot.style.display = 'none';
                 if (data.status === 'completed') {
+                    document.getElementById('result-report').href = data.report_url || '/';
                     document.getElementById('complete').style.display = 'block';
                     document.getElementById('stock-name').textContent = '분석 완료!';
                     document.getElementById('progress-fill').style.width = '100%';
@@ -741,6 +808,7 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
 </html>"""
 
     return (progress_page
+            .replace('PROGRESS_NAV', navigation('history'))
             .replace("MARKET_LABEL", market_label)
             .replace("DART_TEXT", dart_text)
             .replace("PERIOD_HTML", period_html))
@@ -803,11 +871,8 @@ async def preview_period(
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
     """종목 관리 대시보드"""
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(__file__))
-    from dashboard import DASHBOARD_HTML
-    return DASHBOARD_HTML
+    from server.dashboard import render_dashboard
+    return render_dashboard()
 
 
 @app.get("/api/stocks")
@@ -873,6 +938,33 @@ async def delete_domestic_stock(code: str):
     return {"status": "success", "message": "종목이 삭제되었습니다.", "stocks": new_stocks}
 
 
+@app.put('/api/stocks/domestic/{code}')
+async def update_domestic_stock(code: str, stock: DomesticStockRequest):
+    if code != stock.code:
+        raise HTTPException(status_code=400, detail='종목코드는 변경할 수 없습니다. 새 종목으로 추가하세요.')
+    return update_stock_config('domestic', code, stock)
+
+
+def update_stock_config(market, identifier, stock):
+    filename, key, identifier_key = (('stocks.yaml', 'stocks', 'code') if market == 'domestic'
+                                      else ('foreign_stocks.yaml', 'foreign_stocks', 'ticker'))
+    path = get_config_path(filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail='설정 파일을 찾을 수 없습니다.')
+    with open(path, encoding='utf-8') as source:
+        config = yaml.safe_load(source) or {}
+    for current in config.get(key, []):
+        if current.get(identifier_key) == identifier:
+            # Preserve unrelated fields from a user's configuration.
+            current.update(stock.model_dump(exclude_none=True))
+            if stock.type is None:
+                current.pop('type', None)
+            with open(path, 'w', encoding='utf-8') as target:
+                yaml.safe_dump(config, target, allow_unicode=True, sort_keys=False)
+            return {'status': 'success', 'message': '종목 정보가 수정되었습니다.'}
+    raise HTTPException(status_code=404, detail='해당 종목을 찾을 수 없습니다.')
+
+
 @app.get("/api/stocks/foreign")
 async def get_foreign_stocks():
     """해외 종목 목록 조회"""
@@ -930,6 +1022,13 @@ async def delete_foreign_stock(ticker: str):
     return {"status": "success", "message": "종목이 삭제되었습니다.", "stocks": new_stocks}
 
 
+@app.put('/api/stocks/foreign/{ticker}')
+async def update_foreign_stock(ticker: str, stock: ForeignStockRequest):
+    if ticker != stock.ticker:
+        raise HTTPException(status_code=400, detail='티커는 변경할 수 없습니다. 새 종목으로 추가하세요.')
+    return update_stock_config('foreign', ticker, stock)
+
+
 @app.get("/api/stocks/search")
 async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("all")):
     """종목 검색 (한글명/종목코드 부분 일치 + yfinance 해외 검색)"""
@@ -951,6 +1050,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
                     "name": name,
                     "market": s.get("market", "KOSPI"),
                     "currency": "KRW",
+                    "stock_type": s.get('type', ''),
                 })
 
     if market in ("all", "foreign"):
@@ -964,6 +1064,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
                     "name": name,
                     "market": s.get("market", "NASDAQ"),
                     "currency": s.get("currency", "USD"),
+                    "stock_type": s.get('type', ''),
                 })
 
     # 2) 한글명 매핑 테이블 (부분 일치) - 등록 종목이 없을 때
@@ -1036,6 +1137,7 @@ async def search_stocks(q: str = Query(..., min_length=1), market: str = Query("
                         "name": info["shortName"],
                         "market": market_type,
                         "currency": "USD",
+                        "stock_type": 'ETF' if info.get('quoteType') == 'ETF' else '',
                     }]}
             except Exception:
                 pass
