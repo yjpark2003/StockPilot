@@ -63,6 +63,9 @@
     $('overview-message').hidden = false;
     $('overview-message').textContent = '분석 결과를 불러오는 중입니다.';
     $('overview-content').hidden = true;
+    $('selected-report-link').hidden = true;
+    $('selected-report-link').removeAttribute('href');
+    $('generated-at').textContent = '';
     try {
       const response = await fetch('/api/overview' + (date ? '?report_date='+encodeURIComponent(date) : ''));
       if (!response.ok) throw new Error('목록 요청 실패');
@@ -75,6 +78,9 @@
         return;
       }
       $('report-date').innerHTML = data.reports.map(r => `<option value="${esc(r.date)}"${r.date === data.date ? ' selected' : ''}>${esc(r.week)} · ${esc(r.label)} (저장 ${esc(r.date)})</option>`).join('');
+      $('selected-report-link').href = `/reports/${encodeURIComponent(data.date)}/index.html`;
+      $('selected-report-link').setAttribute('aria-label', `${data.period.year_week_label} 주간 리포트 보기`);
+      $('selected-report-link').hidden = false;
       $('generated-at').textContent = data.generated_at ? `생성 ${data.generated_at.replace('T',' ')} · 서버 시각` : '생성 시각 정보 없음';
       $('comparison-note').textContent = data.previous ? `이전 비교 구간: ${data.previous.range_label} (저장 ${data.previous.date})` : '비교할 이전 구간이 없습니다.';
       $('recent-reports').innerHTML = data.reports.slice(0,5).map(r => `<div class="overview-story"><a href="/reports/${encodeURIComponent(r.date)}/index.html">${esc(r.week)}</a><small>${esc(r.label)}</small></div>`).join('');

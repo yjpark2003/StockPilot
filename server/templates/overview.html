@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>StockPilot · 주식 동향</title>
-  <link rel="stylesheet" href="/static/theme.css?v=20261101"><link rel="stylesheet" href="/static/overview.css">
+  <link rel="stylesheet" href="/static/theme.css?v=20261101"><link rel="stylesheet" href="/static/overview.css?v=20261108-report-link">
   {{ theme_init|safe }}
-  <script defer src="/static/overview.js"></script>
+  <script defer src="/static/overview.js?v=20261108-report-link"></script>
 </head>
 <body>
   {{ navigation|safe }}
   <main class="overview container">
-    <div class="overview-heading"><div><p class="eyebrow">관심 종목의 흐름을 한눈에</p><h1>주식 동향</h1></div><a class="btn btn-primary" href="/history#analysis">분석 실행</a></div>
-    <div class="period-bar"><label for="report-date">분석 구간</label><select id="report-date"><option value="">불러오는 중…</option></select><span id="generated-at" class="muted"></span></div>
+    <div class="overview-heading"><div><p class="eyebrow">관심 종목의 흐름을 한눈에</p><h1>주식 동향</h1></div></div>
+    <div class="period-bar"><label for="report-date">분석 구간</label><select id="report-date"><option value="">불러오는 중…</option></select><a id="selected-report-link" class="btn btn-secondary report-link" hidden>주간 리포트 보기 →</a><span id="generated-at" class="muted"></span></div>
     <div id="overview-message" role="status" aria-live="polite">최근 분석 결과를 불러오는 중입니다.</div>
     <div id="overview-content" hidden>
       <div class="summary-grid" aria-label="선택한 시장의 종목 현황">

@@ -6,6 +6,7 @@
 .period-bar label { font-size:14px; font-weight:600; }
 .period-bar select { max-width:100%; }
 .period-bar .muted { font-size:12px; }
+.period-bar .report-link { white-space:nowrap; flex-shrink:0; }
 .overview select, .overview input { font:inherit; font-size:13px; padding:10px 12px; border:1px solid var(--input-border); border-radius:8px; background:var(--surface); color:var(--text); min-width:0; }
 .summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
 .summary-card { padding:22px; border:1px solid var(--border); background:var(--surface); border-radius:12px; }
