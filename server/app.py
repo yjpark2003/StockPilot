@@ -171,10 +171,28 @@ async def root(y: Optional[str] = None, m: Optional[str] = None):
     if y is not None or m is not None:
         return await history(y, m)
     from server.theme import THEME_INIT_SCRIPT, THEME_TOGGLE_SCRIPT
+    from server.report_calendar import CALENDAR_CSS
     environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), 'templates')),
                               autoescape=select_autoescape(['html']))
     return environment.get_template('overview.html').render(
-        navigation=navigation('overview'), theme_init=THEME_INIT_SCRIPT, theme_script=THEME_TOGGLE_SCRIPT)
+        navigation=navigation('overview'), theme_init=THEME_INIT_SCRIPT, theme_script=THEME_TOGGLE_SCRIPT,
+        calendar_css=CALENDAR_CSS)
+
+
+@app.get('/api/report-calendar')
+async def report_calendar_data(year: Optional[int] = Query(None, ge=1900, le=2200),
+                               month: Optional[int] = Query(None, ge=1, le=12),
+                               report_date: Optional[str] = Query(None, pattern=r'^\d{4}-\d{2}-\d{2}$')):
+    from server.report_calendar import scan_reports, resolve_view, render_calendar, available_years
+    entries = scan_reports(REPORTS_DIR)
+    selected = next((entry for entry in entries if entry.date_str == report_date), None)
+    default_entries = [selected] if selected else entries
+    view_year, view_month = resolve_view(default_entries, year, month)
+    return {'year': view_year, 'month': view_month,
+            'years': sorted(set(available_years(entries)) | {view_year}, reverse=True),
+            'total': len(entries),
+            'html': render_calendar(entries, view_year, view_month, overview=True,
+                                    selected_report=selected.date_str if selected else None)}
 
 
 @app.get('/api/overview')

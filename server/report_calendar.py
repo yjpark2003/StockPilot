@@ -115,7 +115,8 @@ def available_years(entries: List[ReportEntry], today: Optional[date] = None) ->
     return sorted(years, reverse=True)
 
 
-def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Optional[date] = None) -> str:
+def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Optional[date] = None,
+                    *, overview: bool = False, selected_report: Optional[str] = None) -> str:
     """해당 연월의 캘린더 그리드 HTML (월~일, 좌측 ISO 주차 표시)"""
     today = today or date.today()
     first, last = _month_bounds(year, month)
@@ -124,7 +125,7 @@ def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Op
     grid_start = first - timedelta(days=first.weekday())
     grid_end = last + timedelta(days=(6 - last.weekday()))
 
-    nav = _render_nav(year, month)
+    nav = _render_nav(year, month, overview=overview, selected_report=selected_report)
     head = "".join(f"<th>{d}</th>" for d in CALENDAR_WEEKDAYS)
 
     rows = []
@@ -136,7 +137,7 @@ def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Op
             day = cursor
             in_month = day.month == month
             entry = by_day.get(day)
-            cells.append(_render_day(day, entry, in_month, today))
+            cells.append(_render_day(day, entry, in_month, today, overview=overview, selected_report=selected_report))
             cursor += timedelta(days=1)
         rows.append('<tr class="cal-row">' + "".join(cells) + "</tr>")
 
@@ -145,7 +146,7 @@ def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Op
         {nav}
     </div>
     <div class="cal-scroll">
-      <table class="cal-table">
+      <table class="cal-table" aria-label="{year}년 {month}월 주간 리포트">
         <thead><tr><th class="cal-week">주차</th>{head}</tr></thead>
         <tbody>
           {''.join(rows)}
@@ -155,7 +156,8 @@ def render_calendar(entries: List[ReportEntry], year: int, month: int, today: Op
     """
 
 
-def _render_day(day: date, entry: Optional[ReportEntry], in_month: bool, today: date) -> str:
+def _render_day(day: date, entry: Optional[ReportEntry], in_month: bool, today: date,
+                *, overview: bool = False, selected_report: Optional[str] = None) -> str:
     classes = ["cal-day"]
     if not in_month:
         classes.append("cal-out")
@@ -173,17 +175,40 @@ def _render_day(day: date, entry: Optional[ReportEntry], in_month: bool, today: 
     )
     badge = f'<span class="cal-badge">{entry.period.iso_week}주차</span>' if is_period_end else ""
     count = f'<span class="cal-count">{entry.stock_count}종목</span>' if entry.stock_count else ""
+    attributes = ''
+    url = entry.url
+    if overview:
+        from urllib.parse import urlencode
+        url = '/?' + urlencode({'report_date': entry.date_str, 'calendar_year': day.year, 'calendar_month': day.month})
+        attributes = f' data-report-date="{htmllib.escape(entry.date_str, quote=True)}"'
+        if entry.date_str == selected_report:
+            classes.append('cal-selected')
+            attributes += ' aria-current="true"'
     return (
         f'<td class="{" ".join(classes)}">'
-        f'<a href="{htmllib.escape(entry.url)}" title="{htmllib.escape(title)}">'
+        f'<a href="{htmllib.escape(url)}" title="{htmllib.escape(title)}"{attributes}>'
         f'<span class="cal-num">{day.day}</span>{badge}{count}'
         f"</a></td>"
     )
 
 
-def _render_nav(year: int, month: int) -> str:
+def _render_nav(year: int, month: int, *, overview: bool = False, selected_report: Optional[str] = None) -> str:
     py, pm = _shift_month(year, month, -1)
     ny, nm = _shift_month(year, month, 1)
+    if overview:
+        from urllib.parse import urlencode
+        def arrow(y, m, direction, label, text):
+            if not 1900 <= y <= 2200:
+                return f'<span class="cal-arrow" aria-disabled="true">{text}</span>'
+            query = {'calendar_year': y, 'calendar_month': m}
+            if selected_report:
+                query['report_date'] = selected_report
+            href = htmllib.escape('/?' + urlencode(query))
+            return (f'<a class="cal-arrow" href="{href}" data-calendar-year="{y}" data-calendar-month="{m}" '
+                    f'rel="{direction}" aria-label="{label}">{text}</a>')
+        return (arrow(py, pm, 'prev', '이전 달', '‹')
+                + f'<span class="cal-title">{year}년 {month}월</span>'
+                + arrow(ny, nm, 'next', '다음 달', '›'))
     return f"""
         <a class="cal-arrow" href="/history?y={py}&m={pm}" rel="prev" aria-label="이전 달">‹</a>
         <span class="cal-title">{year}년 {month}월</span>

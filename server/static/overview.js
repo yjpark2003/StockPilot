@@ -6,6 +6,47 @@
   const tone = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'neutral-sign';
   const safeLink = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch (_) { return ''; } };
   let data = null, market = 'all', request = 0;
+  let calendarRequest = 0, calendarView = null;
+  const initialParams = new URLSearchParams(location.search);
+  const initialYear = Number(initialParams.get('calendar_year')), initialMonth = Number(initialParams.get('calendar_month'));
+  if (Number.isInteger(initialYear) && initialYear >= 1900 && initialYear <= 2200 && Number.isInteger(initialMonth) && initialMonth >= 1 && initialMonth <= 12) {
+    calendarView = {year:initialYear,month:initialMonth};
+  }
+  function updateLocation() {
+    const params = new URLSearchParams(location.search);
+    if (data) params.set('report_date',data.date);
+    if (calendarView) {
+      params.set('calendar_year',calendarView.year);
+      params.set('calendar_month',calendarView.month);
+    }
+    history.replaceState(null,'','/?'+params.toString());
+  }
+  async function loadCalendar(year,month) {
+    const current = ++calendarRequest, params = new URLSearchParams();
+    if (year && month) { params.set('year',year); params.set('month',month); }
+    if (data) params.set('report_date',data.date);
+    $('report-calendar').setAttribute('aria-busy','true');
+    $('calendar-status').textContent = '캘린더를 불러오는 중입니다.';
+    try {
+      const response = await fetch('/api/report-calendar?'+params.toString());
+      if (!response.ok) throw new Error('캘린더 요청 실패');
+      const next = await response.json();
+      if (current !== calendarRequest) return;
+      calendarView = {year:next.year,month:next.month};
+      $('report-calendar').innerHTML = next.html;
+      $('calendar-year').innerHTML = next.years.map(y => `<option value="${y}"${y === next.year ? ' selected' : ''}>${y}년</option>`).join('');
+      $('calendar-year').disabled = false;
+      $('calendar-total').textContent = `총 ${next.total}건`;
+      $('calendar-status').textContent = next.total ? '' : '아직 생성된 주간 리포트가 없습니다.';
+      updateLocation();
+    } catch (_) {
+      if (current !== calendarRequest) return;
+      $('calendar-status').innerHTML = '캘린더를 불러오지 못했습니다. <button type="button" class="btn btn-secondary" id="retry-calendar">다시 시도</button>';
+      $('retry-calendar').onclick = () => loadCalendar(year,month);
+    } finally {
+      if (current === calendarRequest) $('report-calendar').setAttribute('aria-busy','false');
+    }
+  }
   function sparkline(row) {
     const values = row.daily.map(d => d.close);
     if (values.length < 2) return '<span class="muted">데이터 부족</span>';
@@ -58,7 +99,7 @@
       return `<article class="overview-story">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)}<small>${esc(n.stock)} · ${esc(n.time || n.date || n.pub_date || '발행일 미상')}</small></article>`;
     }).join('') || '<p class="empty-state">해당 구간에 수집된 뉴스·공시가 없습니다.</p>';
   }
-  async function load(date) {
+  async function load(date,keepCalendar = false) {
     const current = ++request;
     $('overview-message').hidden = false;
     $('overview-message').textContent = '분석 결과를 불러오는 중입니다.';
@@ -75,6 +116,7 @@
       if (!data) {
         $('report-date').innerHTML = '<option value="">리포트 없음</option>';
         $('overview-message').innerHTML = '아직 생성된 리포트가 없습니다. <a href="/history#analysis">첫 분석을 실행하세요 →</a>';
+        loadCalendar(calendarView && calendarView.year,calendarView && calendarView.month);
         return;
       }
       $('report-date').innerHTML = data.reports.map(r => `<option value="${esc(r.date)}"${r.date === data.date ? ' selected' : ''}>${esc(r.week)} · ${esc(r.label)} (저장 ${esc(r.date)})</option>`).join('');
@@ -83,7 +125,6 @@
       $('selected-report-link').hidden = false;
       $('generated-at').textContent = data.generated_at ? `생성 ${data.generated_at.replace('T',' ')} · 서버 시각` : '생성 시각 정보 없음';
       $('comparison-note').textContent = data.previous ? `이전 비교 구간: ${data.previous.range_label} (저장 ${data.previous.date})` : '비교할 이전 구간이 없습니다.';
-      $('recent-reports').innerHTML = data.reports.slice(0,5).map(r => `<div class="overview-story"><a href="/reports/${encodeURIComponent(r.date)}/index.html">${esc(r.week)}</a><small>${esc(r.label)}</small></div>`).join('');
       const messages = [];
       if (data.legacy) messages.push('기존 HTML 리포트에서 복원한 결과입니다. 지수 비교는 새 분석부터 제공하며, 상품 유형은 현재 등록 설정을 참고합니다.');
       if (data.unlisted_failures) messages.push(`기존 리포트에서 제외된 실패 종목 ${data.unlisted_failures}건이 있습니다. 종목명과 원인은 새 분석부터 저장됩니다.`);
@@ -92,18 +133,32 @@
       $('overview-message').hidden = !messages.length;
       $('overview-content').hidden = false;
       render();
+      loadCalendar(keepCalendar && calendarView ? calendarView.year : null,
+                   keepCalendar && calendarView ? calendarView.month : null);
     } catch (_) {
       if (current !== request) return;
       $('overview-message').innerHTML = '분석 결과를 불러오지 못했습니다. <button type="button" class="btn btn-secondary" id="retry-overview">다시 시도</button>';
-      $('retry-overview').onclick = () => load(date);
+      $('retry-overview').onclick = () => load(date,keepCalendar);
+      if (!calendarView) loadCalendar();
     }
   }
   document.querySelectorAll('[data-market]').forEach(button => button.addEventListener('click', () => { market = button.dataset.market; render(); }));
   ['stock-query','stock-type','stock-sort'].forEach(id => $(id).addEventListener('input', render));
   $('report-date').addEventListener('change', () => {
     const date = $('report-date').value;
-    history.replaceState(null,'','/?report_date='+encodeURIComponent(date));
     load(date);
   });
-  load(new URLSearchParams(location.search).get('report_date'));
+  $('report-calendar').addEventListener('click',event => {
+    const link = event.target.closest('a');
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    if (link.dataset.reportDate) {
+      event.preventDefault();
+      load(link.dataset.reportDate,true);
+    } else if (link.dataset.calendarYear) {
+      event.preventDefault();
+      loadCalendar(Number(link.dataset.calendarYear),Number(link.dataset.calendarMonth));
+    }
+  });
+  $('calendar-year').addEventListener('change',() => loadCalendar(Number($('calendar-year').value),calendarView.month));
+  load(initialParams.get('report_date'),true);
 })();

@@ -49,6 +49,32 @@ async def main():
                     await page.locator('#stock-rows tr').first.wait_for()
                     total = await page.locator('#stock-rows tr').count()
                     assert total > 0
+                    await page.wait_for_function("document.getElementById('report-calendar').getAttribute('aria-busy') === 'false'")
+                    assert await page.locator('#report-calendar .cal-selected').count() > 0
+                    assert await page.locator('#recent-reports').count() == 0
+                    assert await page.locator('#analysis').count() == 0
+                    initial_date = await page.locator('#report-date').input_value()
+                    initial_month = await page.locator('.report-calendar .cal-title').inner_text()
+                    await page.locator('#report-calendar [rel="prev"]').click()
+                    await page.wait_for_function("document.getElementById('report-calendar').getAttribute('aria-busy') === 'false'")
+                    assert await page.locator('.report-calendar .cal-title').inner_text() != initial_month
+                    assert await page.locator('#report-date').input_value() == initial_date
+                    date_link = page.locator('#report-calendar [data-report-date]').first
+                    selected_date = await date_link.get_attribute('data-report-date')
+                    selected_month = await page.locator('.report-calendar .cal-title').inner_text()
+                    await date_link.click()
+                    await page.wait_for_function("date => document.getElementById('selected-report-link').getAttribute('href') === '/reports/' + date + '/index.html'", arg=selected_date)
+                    await page.wait_for_function("document.getElementById('report-calendar').getAttribute('aria-busy') === 'false'")
+                    assert await page.locator('#report-date').input_value() == selected_date
+                    assert await page.locator('.report-calendar .cal-title').inner_text() == selected_month
+                    await page.reload()
+                    await page.locator('#stock-rows tr').first.wait_for()
+                    await page.wait_for_function("document.getElementById('report-calendar').getAttribute('aria-busy') === 'false'")
+                    assert await page.locator('#report-date').input_value() == selected_date
+                    assert await page.locator('.report-calendar .cal-title').inner_text() == selected_month
+                    await page.locator('#report-date').select_option(initial_date)
+                    await page.wait_for_function("document.getElementById('selected-report-link').getAttribute('href') === '/reports/' + document.getElementById('report-date').value + '/index.html'")
+                    await page.wait_for_function("document.getElementById('report-calendar').getAttribute('aria-busy') === 'false'")
                     await page.screenshot(path=str(preview/'overview-desktop.png'), full_page=True)
                     await page.locator('[data-market="foreign"]').click()
                     assert 0 < await page.locator('#stock-rows tr').count() < total
@@ -128,13 +154,13 @@ async def main():
                     server.analysis_progress.clear()
                     server.analysis_progress.update(saved_progress)
                     # Exercise both failed and empty states without touching report files.
-                    await page.route('**/api/overview', lambda route: route.fulfill(status=500,body='{}',content_type='application/json'))
+                    await page.route('**/api/overview*', lambda route: route.fulfill(status=500,body='{}',content_type='application/json'))
                     await page.goto('http://stockpilot.test/')
                     await page.locator('#retry-overview').wait_for()
-                    await page.unroute('**/api/overview')
+                    await page.unroute('**/api/overview*')
                     await page.locator('#retry-overview').click()
                     await page.locator('#stock-rows tr').first.wait_for()
-                    await page.route('**/api/overview', lambda route: route.fulfill(status=200,body='null',content_type='application/json'))
+                    await page.route('**/api/overview*', lambda route: route.fulfill(status=200,body='null',content_type='application/json'))
                     await page.reload()
                     await page.wait_for_function("document.getElementById('overview-message').textContent.includes('아직 생성된')")
                     assert not errors, errors

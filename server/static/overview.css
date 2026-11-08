@@ -31,7 +31,12 @@
 .status-pill { display:inline-block; font-size:11px; border-radius:6px; padding:5px 7px; border:1px solid var(--border); white-space:nowrap; }
 .status-pill.incomplete, .status-pill.failed { color:var(--danger); background:color-mix(in srgb,var(--danger) 8%,transparent); }
 .status-pill.insufficient { color:var(--text-secondary); }
-.bottom-grid { display:grid; grid-template-columns:1.5fr 1fr; gap:20px; }
+.calendar-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.calendar-heading h2 { border:0; margin:0; padding:0; }
+.calendar-heading > div { display:flex; align-items:center; gap:12px; font-size:12px; }
+.report-calendar .cal-selected { box-shadow:inset 0 0 0 2px var(--primary); }
+.report-calendar .cal-day a { min-height:48px; }
+.report-calendar .cal-day { border-bottom:0; }
 .overview-story { padding:14px 0; border-bottom:1px solid var(--divider); line-height:1.6; font-size:14px; }
 .overview-story small { display:block; color:var(--text-secondary); font-size:12px; margin-top:5px; }
 .notice { padding:14px 16px; border:1px solid var(--border); border-radius:8px; margin-bottom:18px; line-height:1.7; font-size:13px; background:var(--surface); }
@@ -41,7 +46,12 @@
   .summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
   .summary-card { padding:16px; }
   .summary-card strong { font-size:26px; }
-  .bottom-grid { grid-template-columns:1fr; gap:0; }
+  .report-calendar .cal-table { border-spacing:2px; }
+  .report-calendar .cal-week { width:30px; }
+  .report-calendar .cal-day { padding:3px; height:52px; }
+  .report-calendar .cal-count { display:none; }
+  .report-calendar .cal-badge { font-size:9px; padding:1px 2px; }
+  .report-calendar .cal-num { font-size:12px; }
   .comparison-table { overflow:visible; }
   .comparison-table table { min-width:0; }
   .comparison-table thead { display:none; }
