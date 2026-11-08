@@ -36,6 +36,12 @@ def load_overview(reports_dir, report_date=None, config=None):
         row['status'] = ('failed' if row.get('error') or not observed else
                          'incomplete' if row['missing_days'] else 'insufficient' if len(observed) < 2 else 'complete')
         row['status_label'] = {'failed': '수집 실패', 'incomplete': '일부 미수집', 'insufficient': '비교 자료 부족', 'complete': '구간 일치'}[row['status']]
+        row['collection_issues'] = [f"{ {'price':'주가','news':'뉴스','financial':'재무','short_interest':'공매도'}.get(key,key)}: {value.get('error') or value['status']}"
+                                    for key, value in row.get('collection_status', {}).items()
+                                    if value.get('status') in ('timeout', 'error', 'skipped') or (key != 'news' and value.get('status') == 'empty')]
+        row['requires_attention'] = bool(row['collection_issues']) or row['status'] != 'complete'
+        if row['status'] == 'complete' and row['collection_issues']:
+            row['status_label'] = '주가 정상 · 부가 수집 실패'
         row['report_url'] = f"/reports/{selected.date_str}/{row['market_type']}_{quote(row['code'], safe='')}.html" if row.get('has_detail') else None
         # Report snapshots stay historical; only type falls back to current settings.
         row['stock_type'] = row.get('stock_type') or configured.get((row['market_type'], row['code']), {}).get('type', '')

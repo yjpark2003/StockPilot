@@ -96,7 +96,7 @@ class YfinanceCollector:
             }
         except Exception as e:
             print(f"yfinance 가격 수집 오류 ({ticker}): {e}")
-            return self._get_empty_price(ticker)
+            raise RuntimeError(f"주가 수집 실패: {e}") from e
 
     async def get_news(
         self,
@@ -151,7 +151,7 @@ class YfinanceCollector:
             return news_items
         except Exception as e:
             print(f"yfinance 뉴스 수집 오류 ({ticker}): {e}")
-            return []
+            raise RuntimeError(f"뉴스 수집 실패: {e}") from e
 
     @staticmethod
     def _parse_pub_date(value: str) -> Optional[date]:
@@ -203,13 +203,7 @@ class YfinanceCollector:
                 "eps": self._format_number(info.get("trailingEps")),
             }
         except Exception as e:
-            print(f"yfinance 재무 데이터 수집 오류 ({ticker}): {e}")
-            return {
-                "per": "N/A", "forward_pe": "N/A", "pbr": "N/A",
-                "market_cap": "N/A", "dividend_yield": "N/A",
-                "52_week_high": "N/A", "52_week_low": "N/A",
-                "beta": "N/A", "eps": "N/A",
-            }
+            raise RuntimeError(f"재무 수집 실패: {e}") from e
 
     async def get_short_interest(self, ticker: str) -> dict:
         """공매도/숏 포지션 데이터 수집"""
@@ -247,14 +241,7 @@ class YfinanceCollector:
                 "sentiment": self._calculate_sentiment(short_percent, short_ratio),
             }
         except Exception as e:
-            print(f"yfinance 공매도 데이터 수집 오류 ({ticker}): {e}")
-            return {
-                "short_ratio": "N/A", "short_percent": "N/A",
-                "shares_short": "N/A", "shares_outstanding": "N/A",
-                "float_shares": "N/A", "short_covering_days": "N/A",
-                "avg_volume": "N/A", "avg_volume_10d": "N/A",
-                "current_volume": "N/A", "sentiment": "중립",
-            }
+            raise RuntimeError(f"공매도 수집 실패: {e}") from e
 
     def _calculate_sentiment(self, short_percent, short_ratio) -> str:
         """숏 포지션 기반 센티먼트 계산"""

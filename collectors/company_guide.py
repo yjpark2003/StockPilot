@@ -14,49 +14,20 @@ class CompanyGuideCollector:
         self._context = None
 
     async def _ensure_browser(self):
-        if self._browser is None:
-            if getattr(self, "_pw", None) is None:
-                self._pw = await async_playwright().start()
-            try:
-                self._browser = await self._pw.chromium.launch(headless=True)
-                self._context = await self._browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                )
-            except Exception:
-                pw = self._pw
-                self._browser = None
-                self._context = None
-                self._pw = None
-                try:
-                    await pw.stop()
-                except Exception:
-                    pass
-                raise
+        from collectors.browser import ensure_browser
+        await ensure_browser(self)
 
     async def close(self):
-        browser = self._browser
-        pw = getattr(self, "_pw", None)
-        self._browser = None
-        self._context = None
-        self._pw = None
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        if pw:
-            try:
-                await pw.stop()
-            except Exception:
-                pass
+        from collectors.browser import close_browser
+        await close_browser(self)
 
     async def get_financial_summary(self, stock_code: str, stock_name: str) -> dict:
         """재무 요약 데이터 수집 (PER, PBR, 부채비율 등)"""
-        await self._ensure_browser()
-        page = await self._context.new_page()
+        from collectors.browser import open_page
+        page = await open_page(self)
         try:
             url = f"{self.BASE_URL}/sise498.naver?giession={stock_code}"
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=getattr(self, "limits", {}).get("navigation", 15) * 1000)
             await page.wait_for_timeout(1500)
 
             # 재무 비율 데이터 추출 시도
@@ -71,13 +42,7 @@ class CompanyGuideCollector:
             return financial_data
         except Exception as e:
             print(f"컴퍼니가이드 수집 오류 ({stock_name}): {e}")
-            return {
-                "per": "N/A",
-                "pbr": "N/A",
-                "roe": "N/A",
-                "debt_ratio": "N/A",
-                "dividend_yield": "N/A",
-            }
+            raise
         finally:
             await page.close()
 

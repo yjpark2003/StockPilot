@@ -108,6 +108,25 @@ async def main():
                     await page.set_viewport_size({'width':1440,'height':1000})
                     await page.locator('#manage-query').fill('')
                     await page.screenshot(path=str(preview/'stocks-desktop.png'),full_page=True)
+                    # Keep a simulated collection pending to exercise the live stage timer.
+                    release = asyncio.Event()
+                    saved_progress = dict(server.analysis_progress)
+                    async def simulated_analysis(market, dart, progress_callback, period=None, stage_callback=None):
+                        await progress_callback(1,1,'검증 종목','수집 시작')
+                        import time
+                        await stage_callback({'stage':'news','started_at':time.time(),'limit_seconds':30})
+                        await release.wait()
+                        await stage_callback({'stage':'report','summary':{'complete':0,'partial':1,'failed':0}})
+                        return '/tmp/test-report/2026-11-08'
+                    with patch('scripts.run_analysis.run_analysis',side_effect=simulated_analysis):
+                        await page.goto('http://stockpilot.test/run-analysis?market=domestic')
+                        await page.wait_for_function("document.getElementById('stage-timer').textContent.includes('제한 30초')")
+                        assert '뉴스 수집' in await page.locator('#status').inner_text()
+                        await page.screenshot(path=str(preview/'collection-progress.png'),full_page=True)
+                        release.set()
+                        await page.wait_for_function("document.getElementById('collection-summary').textContent.includes('부분 수집 1')")
+                    server.analysis_progress.clear()
+                    server.analysis_progress.update(saved_progress)
                     # Exercise both failed and empty states without touching report files.
                     await page.route('**/api/overview', lambda route: route.fulfill(status=500,body='{}',content_type='application/json'))
                     await page.goto('http://stockpilot.test/')

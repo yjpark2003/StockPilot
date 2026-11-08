@@ -20,7 +20,7 @@
     $('count-up').textContent = eligible.filter(s => s.change_rate > 0).length;
     $('count-down').textContent = eligible.filter(s => s.change_rate < 0).length;
     $('count-flat').textContent = eligible.filter(s => s.change_rate === 0).length;
-    $('count-attention').textContent = selectedMarket.filter(s => s.status !== 'complete' || s.change_rate == null).length + (market === 'all' ? data.unlisted_failures : 0);
+    $('count-attention').textContent = selectedMarket.filter(s => s.requires_attention || s.status !== 'complete' || s.change_rate == null).length + (market === 'all' ? data.unlisted_failures : 0);
     document.querySelectorAll('[data-market]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.market === market));
       button.className = `btn btn-${button.dataset.market === market ? 'primary' : 'secondary'}`;
@@ -33,7 +33,7 @@
     const query = $('stock-query').value.trim().toLowerCase(), type = $('stock-type').value;
     let rows = selectedMarket.filter(s => `${s.name} ${s.code}`.toLowerCase().includes(query) && (type === 'all' || (type === 'ETF' ? s.stock_type.toUpperCase() === 'ETF' : s.stock_type.toUpperCase() !== 'ETF')));
     const order = $('stock-sort').value;
-    rows.sort((a,b) => order === 'name' ? a.name.localeCompare(b.name, 'ko') : order === 'attention' ? Number(b.status !== 'complete') - Number(a.status !== 'complete') : a.change_rate == null ? (b.change_rate == null ? 0 : 1) : b.change_rate == null ? -1 : order === 'change-asc' ? a.change_rate-b.change_rate : b.change_rate-a.change_rate);
+    rows.sort((a,b) => order === 'name' ? a.name.localeCompare(b.name, 'ko') : order === 'attention' ? Number(b.requires_attention) - Number(a.requires_attention) : a.change_rate == null ? (b.change_rate == null ? 0 : 1) : b.change_rate == null ? -1 : order === 'change-asc' ? a.change_rate-b.change_rate : b.change_rate-a.change_rate);
     $('result-count').textContent = `(${rows.length}종목)`;
     $('no-matches').hidden = rows.length !== 0;
     $('stock-rows').innerHTML = rows.map(s => {
@@ -45,7 +45,7 @@
         <td data-label="가격 추이">${sparkline(s)}</td>
         <td data-label="이전 구간 대비" class="${tone(s.rate_delta)}">${signed(s.rate_delta, '%p')}<span class="cell-secondary">${s.previous_rate == null ? '비교 불가' : '이전 '+signed(s.previous_rate)}</span></td>
         <td data-label="지수 대비" class="${tone(s.benchmark_delta)}">${signed(s.benchmark_delta, '%p')}<span class="cell-secondary">${esc(s.benchmark_name)}</span></td>
-        <td data-label="데이터 상태"><span class="status-pill ${s.status}">${esc(s.status_label)}</span>${s.missing_days.length ? `<span class="cell-secondary">누락 ${esc(s.missing_days.join(', '))}</span>` : ''}${s.error ? `<span class="cell-secondary">${esc(s.error)}</span>` : ''}</td></tr>`;
+        <td data-label="데이터 상태"><span class="status-pill ${s.status}">${esc(s.status_label)}</span>${s.collection_issues && s.collection_issues.length ? `<span class="cell-secondary">${esc(s.collection_issues.join(" / "))}</span>` : ""}${s.missing_days.length ? `<span class="cell-secondary">누락 ${esc(s.missing_days.join(', '))}</span>` : ''}${s.error ? `<span class="cell-secondary">${esc(s.error)}</span>` : ''}</td></tr>`;
     }).join('');
     const seen = new Set(), stories = [];
     selectedMarket.forEach(s => [...s.news, ...s.disclosures].forEach(n => {

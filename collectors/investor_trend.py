@@ -34,41 +34,12 @@ class InvestorTrendCollector:
         self._context = None
 
     async def _ensure_browser(self):
-        if self._browser is None:
-            if getattr(self, "_pw", None) is None:
-                self._pw = await async_playwright().start()
-            try:
-                self._browser = await self._pw.chromium.launch(headless=True)
-                self._context = await self._browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                )
-            except Exception:
-                pw = self._pw
-                self._browser = None
-                self._context = None
-                self._pw = None
-                try:
-                    await pw.stop()
-                except Exception:
-                    pass
-                raise
+        from collectors.browser import ensure_browser
+        await ensure_browser(self)
 
     async def close(self):
-        browser = self._browser
-        pw = getattr(self, "_pw", None)
-        self._browser = None
-        self._context = None
-        self._pw = None
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        if pw:
-            try:
-                await pw.stop()
-            except Exception:
-                pass
+        from collectors.browser import close_browser
+        await close_browser(self)
 
     async def get_investor_trend(self, stock_code: str, days: int = 5) -> dict:
         """투자자별 매매동향 수집 (외국인/기관/개인)
@@ -80,11 +51,11 @@ class InvestorTrendCollector:
             return {"daily_trend": [], "foreign_ratio": "N/A", "summary": {},
                     "unavailable_reason": SOURCE_UNAVAILABLE_REASON}
 
-        await self._ensure_browser()
-        page = await self._context.new_page()
+        from collectors.browser import open_page
+        page = await open_page(self)
         try:
             url = f"{self.BASE_URL}/item/frgn.naver?code={stock_code}&page=1"
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=getattr(self, "limits", {}).get("navigation", 15) * 1000)
             await page.wait_for_timeout(1000)
 
             # 투자자별 매매동향 테이블 찾기
@@ -198,11 +169,11 @@ class InvestorTrendCollector:
         if not SOURCE_AVAILABLE:
             return {"volume_data": [], "unavailable_reason": SOURCE_UNAVAILABLE_REASON}
 
-        await self._ensure_browser()
-        page = await self._context.new_page()
+        from collectors.browser import open_page
+        page = await open_page(self)
         try:
             url = f"{self.BASE_URL}/item/sise_day.naver?code={stock_code}"
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=getattr(self, "limits", {}).get("navigation", 15) * 1000)
             await page.wait_for_timeout(800)
 
             rows = await page.locator("table.type2 tr").all()

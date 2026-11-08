@@ -149,6 +149,10 @@ class HtmlReporter:
         </section>
         {% endif %}
 
+        {% if collection_summary %}
+        <div class="info-bar"><p>수집 결과: 정상 {{ collection_summary.complete }} · 부분 수집 {{ collection_summary.partial }} · 실패 {{ collection_summary.failed }}종목</p></div>
+        {% endif %}
+
         {% if is_custom %}
         <div class="info-bar">
             <div>
@@ -280,7 +284,11 @@ class HtmlReporter:
                         </div>
                         {% endfor %}
                         {% if not stock.news %}
+                        {% if stock.collection_status and stock.collection_status.news and stock.collection_status.news.status in ['timeout', 'error', 'skipped'] %}
+                        <p class="basis-empty">뉴스 수집 실패: {{ stock.collection_status.news.error }}</p>
+                        {% else %}
                         <p class="basis-empty">해당 구간에 발행된 뉴스를 찾지 못했습니다.</p>
+                        {% endif %}
                         {% endif %}
                         {% if stock.data_alignment and stock.data_alignment.get('news') and stock.data_alignment['news'].note and stock.news %}
                         <p class="basis-empty">{{ stock.data_alignment['news'].note }}</p>
@@ -349,7 +357,11 @@ class HtmlReporter:
                         </div>
                         {% endfor %}
                         {% if not stock.news %}
+                        {% if stock.collection_status and stock.collection_status.news and stock.collection_status.news.status in ['timeout', 'error', 'skipped'] %}
+                        <p class="basis-empty">뉴스 수집 실패: {{ stock.collection_status.news.error }}</p>
+                        {% else %}
                         <p class="basis-empty">해당 구간에 발행된 뉴스를 찾지 못했습니다.</p>
+                        {% endif %}
                         {% endif %}
                     </div>
 
@@ -609,6 +621,13 @@ class HtmlReporter:
 
         <div class="section">
             <h2>주가 정보</h2>
+            {% if stock.collection_status %}
+            <details><summary>수집 단계별 결과</summary><ul>
+            {% for key, result in stock.collection_status.items() %}
+            <li>{{ SECTION_LABELS.get(key, key) }}: {{ COLLECTION_LABELS.get(result.status, result.status) }}{% if result.elapsed_seconds %} · {{ result.elapsed_seconds }}초{% endif %}{% if result.error %} — {{ result.error }}{% endif %}</li>
+            {% endfor %}
+            </ul></details>
+            {% endif %}
             <div class="price-grid">
                 <div class="price-item">
                     <div class="label">마지막 종가</div>
@@ -741,7 +760,11 @@ class HtmlReporter:
             </div>
             {% endfor %}
             {% if not stock.news %}
-            <p class="basis-empty">해당 구간에 발행된 뉴스를 찾지 못했습니다. (국내: 토스증권이 최근 6건만 제공 / 해외: 야후 피드가 최근 며칠치만 제공)</p>
+            {% if stock.collection_status and stock.collection_status.news and stock.collection_status.news.status in ['timeout', 'error', 'skipped'] %}
+                        <p class="basis-empty">뉴스 수집 실패: {{ stock.collection_status.news.error }}</p>
+                        {% else %}
+                        <p class="basis-empty">해당 구간에 발행된 뉴스를 찾지 못했습니다.</p>
+                        {% endif %}
             {% endif %}
             {{ basis_note(stock.data_alignment, 'news') }}
         </div>
@@ -988,6 +1011,7 @@ class HtmlReporter:
             "domestic_count": len(domestic_stocks),
             "foreign_count": len(foreign_stocks),
             "failed_count": failed_count,
+            "collection_summary": all_results.get('collection_summary', {}),
             **period.to_dict(),
         }
         meta_path = os.path.join(output_dir, "meta.json")
@@ -1015,6 +1039,7 @@ class HtmlReporter:
             foreign_stocks=foreign_stocks,
             date=date_str,
             navigation=navigation('history'),
+            collection_summary=all_results.get('collection_summary', {}),
             price_gaps=price_gaps,
             failed_stocks=[s for s in raw_domestic + raw_foreign
                            if "error" in s or not (s.get("price") or {}).get("weekly_data")],
@@ -1032,7 +1057,9 @@ class HtmlReporter:
         for stocks, prefix in ((domestic_stocks, "domestic"), (foreign_stocks, "foreign")):
             for stock in stocks:
                 detail_html = detail_template.render(
-                    stock=stock, date=date_str, SECTION_LABELS=SECTION_LABELS, navigation=navigation('history'), **period_ctx
+                    stock=stock, date=date_str, SECTION_LABELS=SECTION_LABELS,
+                    COLLECTION_LABELS={'ok': '정상', 'empty': '데이터 없음', 'timeout': '시간 초과', 'error': '수집 실패', 'skipped': '건너뜀', 'unsupported': '미지원'},
+                    navigation=navigation('history'), **period_ctx
                 )
                 detail_path = os.path.join(output_dir, f"{prefix}_{stock['code']}.html")
                 with open(detail_path, "w", encoding="utf-8") as f:

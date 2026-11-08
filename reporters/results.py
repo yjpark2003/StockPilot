@@ -44,6 +44,8 @@ def normalize_stock(stock, market):
         'news': stock.get('news') or [], 'disclosures': stock.get('disclosures') or [],
         'key_points': stock.get('key_points') or [],
         'has_detail': not bool(stock.get('error')) and bool(daily),
+        'collection_status': stock.get('collection_status', {}),
+        'analysis_status': stock.get('analysis_status', 'failed' if failed else 'complete'),
     }
 
 
@@ -53,6 +55,7 @@ def write_results(output_dir, all_results):
         'stocks': [normalize_stock(s, market) for market in ('domestic', 'foreign')
                    for s in all_results.get(market, [])],
         'benchmarks': all_results.get('benchmarks', {}),
+        'collection_summary': all_results.get('collection_summary', {}),
     }
     target = Path(output_dir) / 'results.json'
     temporary = target.with_suffix('.json.tmp')

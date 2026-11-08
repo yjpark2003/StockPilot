@@ -34,41 +34,12 @@ class TossNewsCollector:
         self._context = None
 
     async def _ensure_browser(self):
-        if self._browser is None:
-            if getattr(self, "_pw", None) is None:
-                self._pw = await async_playwright().start()
-            try:
-                self._browser = await self._pw.chromium.launch(headless=True)
-                self._context = await self._browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                )
-            except Exception:
-                pw = self._pw
-                self._browser = None
-                self._context = None
-                self._pw = None
-                try:
-                    await pw.stop()
-                except Exception:
-                    pass
-                raise
+        from collectors.browser import ensure_browser
+        await ensure_browser(self)
 
     async def close(self):
-        browser = self._browser
-        pw = getattr(self, "_pw", None)
-        self._browser = None
-        self._context = None
-        self._pw = None
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        if pw:
-            try:
-                await pw.stop()
-            except Exception:
-                pass
+        from collectors.browser import close_browser
+        await close_browser(self)
 
     def _convert_stock_code(self, stock_code: str, market: str = "KRX") -> str:
         """종목 코드를 토스증권 형식으로 변환"""
@@ -204,13 +175,13 @@ class TossNewsCollector:
         `start`/`end`(YYYY-MM-DD)를 주면 그 구간에 발행된 기사만 남긴다.
         발행일을 모르는 항목(undated)은 구간 필터가 걸려 있으면 제외한다.
         """
-        await self._ensure_browser()
-        page = await self._context.new_page()
+        from collectors.browser import open_page
+        page = await open_page(self)
         try:
             toss_code = self._convert_stock_code(stock_code, market)
             url = f"{self.BASE_URL}/stocks/{toss_code}/news"
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=getattr(self, "limits", {}).get("navigation", 15) * 1000)
             await page.wait_for_timeout(1500)
 
             # 페이지 스크롤하여 콘텐츠 로드
@@ -225,10 +196,7 @@ class TossNewsCollector:
             news_items = []
             seen_titles = set()
 
-            try:
-                raw_items = await page.evaluate(self._EXTRACT_JS)
-            except Exception:
-                raw_items = []
+            raw_items = await page.evaluate(self._EXTRACT_JS)
 
             for raw in raw_items:
                 try:
@@ -265,14 +233,14 @@ class TossNewsCollector:
             # 뉴스가 부족하면 페이지 텍스트에서 추출 (발행일 미상)
             if len(news_items) < count and not filtering:
                 news_items.extend(
-                    self._scrape_fallback(page, url, seen_titles, count - len(news_items))
+                    await self._scrape_fallback(page, url, seen_titles, count - len(news_items))
                 )
 
             return news_items[:count]
 
         except Exception as e:
             print(f"토스증권 뉴스 수집 오류 ({stock_code}): {e}")
-            return []
+            raise
         finally:
             await page.close()
 
@@ -352,13 +320,13 @@ class TossNewsCollector:
 
     async def get_news_with_content(self, stock_code: str, market: str = "KRX") -> dict:
         """뉴스 상세 내용 포함 수집"""
-        await self._ensure_browser()
-        page = await self._context.new_page()
+        from collectors.browser import open_page
+        page = await open_page(self)
         try:
             toss_code = self._convert_stock_code(stock_code, market)
             url = f"{self.BASE_URL}/stocks/{toss_code}/news"
             
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.goto(url, wait_until="networkidle", timeout=getattr(self, "limits", {}).get("navigation", 15) * 1000)
             await page.wait_for_timeout(3000)
             
             # 페이지 전체 텍스트 추출

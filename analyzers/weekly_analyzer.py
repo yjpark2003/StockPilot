@@ -6,15 +6,9 @@ from typing import Optional
 
 from analyzers.period import WeeklyPeriod, resolve_period
 from analyzers.market_calendar import MARKET_KR, MARKET_US
-from collectors import (
-    NaverFinanceCollector,
-    DartCollector,
-    KrxCollector,
-    CompanyGuideCollector,
-    YfinanceCollector,
-    InvestorTrendCollector,
-    TossNewsCollector,
-)
+from collectors.execution import StageRunner
+from collectors.limits import load_limits
+import time
 from collectors.investor_trend import (
     SOURCE_AVAILABLE as INVESTOR_TREND_AVAILABLE,
     SOURCE_UNAVAILABLE_REASON as INVESTOR_TREND_REASON,
@@ -123,213 +117,98 @@ def build_alignment(market_type: str, sections: Optional[dict] = None) -> dict:
 class WeeklyAnalyzer:
     """종목별 주간 분석 수행"""
 
-    def __init__(self, news_count: int = 3, dart_api_key: str = "", with_dart: bool = False, progress_callback=None, period: Optional[WeeklyPeriod] = None):
+    def __init__(self, news_count=3, dart_api_key="", with_dart=False,
+                 progress_callback=None, period=None, stage_callback=None, limits=None):
         self.news_count = news_count
         self.with_dart = with_dart
         self.progress_callback = progress_callback
+        self.stage_callback = stage_callback
         self.period = period or resolve_period()
-        self.naver = NaverFinanceCollector()
-        self.dart = DartCollector(api_key=dart_api_key) if with_dart else None
-        self.krx = KrxCollector()
-        self.company_guide = CompanyGuideCollector()
-        self.yfinance = YfinanceCollector()
-        self.investor_trend = InvestorTrendCollector()
-        self.toss_news = TossNewsCollector()
+        self.limits = limits or load_limits()
+        self.runner = StageRunner(self.limits['consecutive_timeouts'])
 
-    async def analyze_stock(self, stock: dict, market: str = "domestic") -> dict:
-        """단일 종목 분석"""
-        if market == "foreign":
-            return await self._analyze_foreign_stock(stock)
+    async def _collect(self, stage, source, method, args, kwargs, deadline=None):
+        limit = self.limits[stage]
+        if deadline is not None:
+            limit = max(0, min(limit, deadline - time.monotonic()))
+        payload = dict(source=source, method=method, args=args, kwargs=kwargs, limits=self.limits,
+                       full_budget=limit == self.limits[stage])
+        result = await self.runner.run(stage, source, payload, limit, self.stage_callback)
+        if self.stage_callback:
+            await self.stage_callback({**result, 'finished': True})
+        return result
+
+    async def collect_benchmark(self, ticker):
+        result = await self._collect('benchmark', 'yfinance', 'get_weekly_price', [ticker],
+                                     dict(start=self.period.start.isoformat(), end=self.period.end.isoformat(),
+                                          include_live_quote=False))
+        return {**(result.pop('data', None) or {}), 'collection_status': result}
+
+    async def analyze_stock(self, stock, market='domestic'):
+        deadline = time.monotonic() + self.limits['stock']
+        foreign = market == 'foreign'
+        code = stock['ticker'] if foreign else stock['code']
+        currency = stock.get('currency', 'USD') if foreign else 'KRW'
+        ticker = code if foreign else code + ('.KQ' if stock.get('market', '').upper() == 'KOSDAQ' else '.KS')
+        bounds = dict(start=self.period.start.isoformat(), end=self.period.end.isoformat())
+        stages = {}
+        # Sequential stages share one deadline. Workers own all network/browser resources.
+        stages['price'] = await self._collect('price', 'yfinance', 'get_weekly_price',
+                                              [ticker, currency], {**bounds, 'include_live_quote': False}, deadline)
+        stages['news'] = await self._collect('news', 'yfinance' if foreign else 'toss', 'get_news',
+                                             [ticker if foreign else code, self.news_count], bounds, deadline)
+        stages['financial'] = await self._collect('financial', 'yfinance' if foreign else 'company_guide',
+                                                  'get_financial_summary', [ticker] if foreign else [code, stock['name']], {}, deadline)
+        if foreign:
+            stages['short_interest'] = await self._collect('short_interest', 'yfinance', 'get_short_interest', [ticker], {}, deadline)
         else:
-            return await self._analyze_domestic_stock(stock)
-
-    async def _analyze_domestic_stock(self, stock: dict) -> dict:
-        """국내 종목 분석"""
-        import time
-        code = stock["code"]
-        name = stock["name"]
-        print(f"  [{name}] 데이터 수집 중...")
-        
-        timings = {}
-        total_start = time.time()
-
-        # 데이터 수집 (병렬 실행) - yfinance 우선 사용
-        # 국내 종목은 .KS 접미사 추가
-        start = self.period.start.isoformat()
-        end = self.period.end.isoformat()
-        ticker_ks = f"{code}.KQ" if stock.get('market', '').upper() == 'KOSDAQ' else f"{code}.KS"
-        price_task = self.yfinance.get_weekly_price(
-            ticker_ks, "KRW", start=start, end=end
-        )
-        news_task = self.toss_news.get_news(code, self.news_count, "KRX", start=start, end=end)
-        financial_task = self.company_guide.get_financial_summary(code, name)
-        investor_task = self.investor_trend.get_investor_trend(code)
-        volume_task = self.investor_trend.get_trading_volume(code)
-
-        # 태스크 목록 구성 (yfinance 사용으로 krx 제거)
-        tasks = [price_task, news_task, financial_task, investor_task, volume_task]
-        task_names = ["yfinance", "toss_news", "company_guide", "investor_trend", "volume"]
-
-        # 개별 태스크 시간 측정
-        completed_tasks = {}
-        for i, (task, name_key) in enumerate(zip(tasks, task_names)):
-            task_start = time.time()
-            try:
-                result = await task
-                completed_tasks[name_key] = result
-                timings[name_key] = time.time() - task_start
-            except Exception as e:
-                completed_tasks[name_key] = e
-                timings[name_key] = time.time() - task_start
-
-        timings["total"] = time.time() - total_start
-        
-        # 타이밍 출력
-        print(f"  [{name}] 소요시간: {timings['total']:.2f}초")
-        for key, t in sorted(timings.items(), key=lambda x: -x[1]):
-            if key != "total":
-                print(f"    - {key}: {t:.2f}초")
-
-        price_data = completed_tasks.get("yfinance", {})
-        if isinstance(price_data, Exception) or not price_data or not price_data.get("weekly_data"):
-            price_data = {
-                "current_price": 0, "weekly_data": [], "change_rate": 0.0,
-                "start_price": 0, "end_price": 0, "currency": "KRW",
-            }
-        
-        news_data = completed_tasks.get("toss_news", [])
-        if isinstance(news_data, Exception):
-            news_data = []
-            
-        financial_data = completed_tasks.get("company_guide", {})
-        if isinstance(financial_data, Exception) or not financial_data:
-            financial_data = {
-                "per": "N/A", "pbr": "N/A", "roe": "N/A",
-                "debt_ratio": "N/A", "dividend_yield": "N/A",
-            }
-            
-        investor_data = completed_tasks.get("investor_trend", {})
-        if isinstance(investor_data, Exception) or not investor_data:
-            investor_data = {
-                "daily_trend": [], "foreign_ratio": "N/A", "summary": {},
-            }
-
-        volume_data = completed_tasks.get("volume", {})
-        if isinstance(volume_data, Exception) or not volume_data:
-            volume_data = {"volume_data": []}
-
-        # 주목 포인트 분석
-        key_points = self._generate_key_points(
-            name, price_data, news_data, [], financial_data, "KRW", investor_data
-        )
-
-        alignment = build_alignment("domestic", {
-            "price": price_alignment(price_data, self.period, MARKET_KR),
-            "news": self._news_alignment(news_data),
-            "investor_trend": {"unavailable_reason": investor_data.get("unavailable_reason", "")},
-            "volume_data": {"unavailable_reason": volume_data.get("unavailable_reason", "")},
+            for section in ('investor_trend', 'volume_data'):
+                stages[section] = dict(status='unsupported', error=INVESTOR_TREND_REASON, elapsed_seconds=0)
+        price = stages['price'].get('data') or dict(current_price=0, weekly_data=[], change_rate=0,
+                                                  start_price=0, end_price=0, currency=currency)
+        news = stages['news'].get('data') or []
+        financial = stages['financial'].get('data') or {key: 'N/A' for key in
+            ('per', 'pbr', 'roe', 'debt_ratio', 'dividend_yield', 'market_cap', 'eps', 'forward_pe', '52_week_high', '52_week_low', 'beta')}
+        short = stages.get('short_interest', {}).get('data') or {}
+        alignment = build_alignment(market, {
+            'price': price_alignment(price, self.period, MARKET_US if foreign else MARKET_KR),
+            'news': self._news_alignment(news),
         })
+        for section, result in stages.items():
+            if section in alignment and result['status'] in ('timeout', 'error', 'skipped'):
+                alignment[section].update(basis='incomplete', label='수집 실패',
+                                          note=result.get('error', '수집 실패'), collection_status=result['status'])
+            elif section in alignment and section != 'news' and result['status'] == 'empty':
+                alignment[section].update(basis='unavailable', label='데이터 없음', note='소스에 해당 지표가 없습니다.')
+        collection = {key: {k: v for k, v in result.items() if k != 'data'} for key, result in stages.items()}
+        failed = not price.get('weekly_data')
+        partial = any(result['status'] in ('timeout', 'error', 'skipped')
+                      or (section != 'news' and result['status'] == 'empty')
+                      for section, result in stages.items())
+        result = dict(code=code, name=stock['name'], market=stock.get('market', ''), market_type=market,
+                      stock_type=stock.get('type') or ('ETF' if stock.get('market') == 'ETF' else financial.get('stock_type', '')),
+                      currency=currency, analysis_date=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                      price=price, news=news, financial=financial, short_interest=short,
+                      disclosures=[], market_data={}, investor_trend={}, volume_data=[],
+                      key_points=self._generate_key_points(stock['name'], price if not failed else {}, news, [], financial, currency, None, short),
+                      data_alignment=alignment, collection_status=collection,
+                      analysis_status='failed' if failed else 'partial' if partial else 'complete')
+        if failed:
+            result['error'] = stages['price'].get('error') or '구간 주가 데이터 없음'
+        return result
 
-        return {
-            "code": code,
-            "name": name,
-            "market": stock.get("market", ""),
-            "market_type": "domestic",
-            "stock_type": stock.get("type") or ('ETF' if stock.get('market') == 'ETF' else ''),
-            "currency": "KRW",
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "price": price_data,
-            "news": news_data,
-            "disclosures": [],
-            "market_data": {},
-            "financial": financial_data,
-            "investor_trend": investor_data,
-            "volume_data": volume_data.get("volume_data", []),
-            "key_points": key_points,
-            "data_alignment": alignment,
-        }
-
-    def _news_alignment(self, news_data: list) -> dict:
-        """뉴스 수집 결과에 대한 구간 정합성 설명"""
-        items = news_data if isinstance(news_data, list) else []
-        dated = [n for n in items if n.get("pub_date")]
-        undated = [n for n in items if n.get("undated")]
-        if not items:
-            note = "해당 구간에 발행된 뉴스를 찾지 못했습니다."
+    def _news_alignment(self, news):
+        dated = [item for item in news if item.get('pub_date')]
+        undated = [item for item in news if item.get('undated')]
+        if not news:
+            note = '해당 구간에 발행된 뉴스를 찾지 못했습니다.'
         elif dated:
-            note = f"{len(dated)}건이 구간 발행일로 확인됩니다."
+            note = f'{len(dated)}건이 구간 발행일로 확인됩니다.'
             if undated:
-                note += f" {len(undated)}건은 발행일 미상으로 구간 검증에서 제외했습니다."
+                note += f' {len(undated)}건은 발행일 미상으로 구간 검증에서 제외했습니다.'
         else:
-            note = "발행일을 확인하지 못해 구간 정합성을 검증할 수 없습니다."
-        return {"count": len(items), "note": note}
-
-    async def _analyze_foreign_stock(self, stock: dict) -> dict:
-        """해외 종목 분석"""
-        ticker = stock["ticker"]
-        name = stock["name"]
-        currency = stock.get("currency", "USD")
-        print(f"  [{name}] 데이터 수집 중...")
-
-        # 데이터 수집 (병렬 실행)
-        start = self.period.start.isoformat()
-        end = self.period.end.isoformat()
-        price_task = self.yfinance.get_weekly_price(
-            ticker, currency, start=start, end=end
-        )
-        news_task = self.yfinance.get_news(ticker, self.news_count, start=start, end=end)
-        financial_task = self.yfinance.get_financial_summary(ticker)
-        short_task = self.yfinance.get_short_interest(ticker)
-
-        results = await asyncio.gather(
-            price_task, news_task, financial_task, short_task,
-            return_exceptions=True,
-        )
-
-        price_data = results[0] if not isinstance(results[0], Exception) else {
-            "current_price": 0, "weekly_data": [], "change_rate": 0.0,
-            "start_price": 0, "end_price": 0, "currency": currency,
-        }
-        news_data = results[1] if not isinstance(results[1], Exception) else []
-        financial_data = results[2] if not isinstance(results[2], Exception) else {
-            "per": "N/A", "pbr": "N/A", "market_cap": "N/A",
-            "dividend_yield": "N/A", "eps": "N/A",
-        }
-        short_data = results[3] if not isinstance(results[3], Exception) else {
-            "short_ratio": "N/A", "short_percent": "N/A",
-            "shares_short": "N/A", "shares_outstanding": "N/A",
-            "float_shares": "N/A", "short_covering_days": "N/A",
-            "avg_volume": "N/A", "avg_volume_10d": "N/A",
-            "current_volume": "N/A", "sentiment": "중립",
-        }
-
-        # 주목 포인트 분석
-        key_points = self._generate_key_points(
-            name, price_data, news_data, [], financial_data, currency, None, short_data
-        )
-
-        alignment = build_alignment("foreign", {
-            "price": price_alignment(price_data, self.period, MARKET_US),
-            "news": self._news_alignment(news_data),
-        })
-
-        return {
-            "code": ticker,
-            "stock_type": stock.get("type") or financial_data.get('stock_type', ''),
-            "name": name,
-            "market": stock.get("market", ""),
-            "market_type": "foreign",
-            "currency": currency,
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "price": price_data,
-            "news": news_data,
-            "disclosures": [],
-            "market_data": {},
-            "financial": financial_data,
-            "short_interest": short_data,
-            "key_points": key_points,
-            "data_alignment": alignment,
-        }
+            note = '발행일을 확인하지 못해 구간 정합성을 검증할 수 없습니다.'
+        return dict(count=len(news), note=note)
 
     async def analyze_all(self, stocks: list, market: str = "domestic", start_idx: int = 0, total: int = 0) -> list:
         """전체 종목 분석"""
@@ -351,10 +230,14 @@ class WeeklyAnalyzer:
             try:
                 result = await self.analyze_stock(stock, market)
                 results.append(result)
+                if result.get('error'):
+                    print(f"  ✗ 실패: {result['error']}", flush=True)
+                    continue
                 # 성공 시 간략 결과 출력
                 change = result.get('price', {}).get('change_rate', 0)
                 icon = "+" if change > 0 else ""
-                print(f"  ✓ 완료 ({icon}{change:.1f}%)")
+                label = '부분 수집' if result.get('analysis_status') == 'partial' else '완료'
+                print(f"  ✓ {label} ({icon}{change:.1f}%)", flush=True)
             except Exception as e:
                 print(f"  ✗ 오류: {e}")
                 results.append({
@@ -430,8 +313,5 @@ class WeeklyAnalyzer:
         return points
 
     async def close(self):
-        """리소스 정리"""
-        await self.naver.close()
-        await self.company_guide.close()
-        await self.investor_trend.close()
-        await self.toss_news.close()
+        """Each stage reaps its isolated process before returning."""
+        pass

@@ -16,6 +16,7 @@
 웹 메뉴: **동향 `/` → 리포트 기록 `/history` → 종목 관리 `/dashboard`**.
 분석 실행과 DART 공시 포함 설정은 리포트 기록 화면에 있습니다.
 개선 단계와 데이터 기준은 [대시보드 개선 내역](docs/dashboard-improvements.md)을 참고하세요.
+수집 단계별 제한시간·장애 처리 정책은 [수집 제한시간 안내](docs/collection-timeouts.md)를 참고하세요.
 
 ## 종목 리스트 (샘플)
 

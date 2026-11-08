@@ -75,6 +75,10 @@ analysis_progress = {
     "message": "",
     "period": None,
     "report_url": None,
+    "stage": None,
+    "stage_started_at": None,
+    "stage_limit_seconds": None,
+    "collection_summary": None,
 }
 
 # 종목 추가/삭제 요청 모델
@@ -572,6 +576,7 @@ async def run_analysis_endpoint(
     analysis_progress["message"] = "분석 준비 중..."
     analysis_progress["period"] = period.to_dict() if period else None
     analysis_progress['report_url'] = None
+    analysis_progress.update(stage=None, stage_started_at=None, stage_limit_seconds=None, collection_summary=None)
 
     # 종목 수 계산
     total_stocks = 0
@@ -593,8 +598,21 @@ async def run_analysis_endpoint(
                 analysis_progress["current_stock"] = stock_name
                 analysis_progress["message"] = status
 
+            async def stage_callback(event):
+                labels = {'price': '주가 수집', 'news': '뉴스 수집', 'financial': '재무 수집',
+                          'short_interest': '공매도 수집', 'benchmark': '기준지수 수집', 'report': '리포트 생성'}
+                analysis_progress['stage'] = event['stage']
+                analysis_progress['stage_started_at'] = None if event.get('finished') else event.get('started_at')
+                analysis_progress['stage_limit_seconds'] = event.get('limit_seconds')
+                prefix = analysis_progress['current_stock'] if event['stage'] not in ('benchmark', 'report') else ''
+                analysis_progress['message'] = (prefix + ' · ' if prefix else '') + labels.get(event['stage'], event['stage'])
+                if event.get('finished') and event.get('status') in ('timeout', 'error', 'skipped'):
+                    analysis_progress['message'] += ' · ' + event.get('error', '수집 실패')
+                if 'summary' in event:
+                    analysis_progress['collection_summary'] = event['summary']
+
             # 분석 실행 (진행률 콜백 + 구간 전달)
-            output_dir = await run_analysis(market, with_dart, progress_callback, period=period)
+            output_dir = await run_analysis(market, with_dart, progress_callback, period=period, stage_callback=stage_callback)
             analysis_progress['report_url'] = f'/reports/{os.path.basename(output_dir)}/index.html'
             analysis_progress["status"] = "completed"
             analysis_progress["message"] = "분석 완료!"
@@ -605,6 +623,7 @@ async def run_analysis_endpoint(
             analysis_progress["message"] = f"오류: {str(e)}"
         finally:
             analysis_progress["is_running"] = False
+            analysis_progress['stage_started_at'] = None
 
     # 백그라운드에서 분석 실행
     asyncio.create_task(run_background())
@@ -692,9 +711,11 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
             <span class="status-dot" aria-hidden="true"></span>
             <span id="status">분석을 시작합니다...</span>
         </div>
+        <p id="stage-timer" role="timer" style="font-size:13px;color:var(--text-secondary);"></p>
         
         <div class="complete" id="complete">
             <p style="font-size: 18px; color: var(--success);">분석 완료!</p>
+            <p id="collection-summary" style="margin:12px 0;"></p>
             <a href="/" class="btn btn-primary" id="result-report">생성된 리포트 보기</a>
             <a href="/" class="btn btn-secondary">동향으로 돌아가기</a>
         </div>
@@ -706,6 +727,8 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
         
         function updateProgress(data) {
             if (completed) return;
+            window.collectionStage = data;
+            renderStageTime();
             
             const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
             document.getElementById('progress-fill').style.width = percent + '%';
@@ -723,6 +746,8 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
                 var dot = document.querySelector('#status-row .status-dot');
                 if (dot) dot.style.display = 'none';
                 if (data.status === 'completed') {
+                    const summary = data.collection_summary;
+                    if (summary) document.getElementById('collection-summary').textContent = '정상 ' + summary.complete + ' · 부분 수집 ' + summary.partial + ' · 실패 ' + summary.failed + '종목';
                     document.getElementById('result-report').href = data.report_url || '/';
                     document.getElementById('complete').style.display = 'block';
                     document.getElementById('stock-name').textContent = '분석 완료!';
@@ -735,6 +760,13 @@ def _progress_page(market: str, with_dart: bool, period=None) -> str:
             }
         }
         
+        function renderStageTime() {
+            const data = window.collectionStage;
+            document.getElementById('stage-timer').textContent = data && data.stage_started_at && data.is_running
+                ? Math.max(0, Math.floor(Date.now() / 1000 - data.stage_started_at)) + '초 경과 / 제한 ' + Math.round(data.stage_limit_seconds) + '초' : '';
+        }
+        setInterval(renderStageTime, 1000);
+
         // SSE 연결 시도
         function connectSSE() {
             eventSource = new EventSource('/api/progress/stream');

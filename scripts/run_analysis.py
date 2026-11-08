@@ -60,6 +60,7 @@ async def run_analysis(
     with_dart: bool = False,
     progress_callback=None,
     period: Optional[WeeklyPeriod] = None,
+    stage_callback=None,
 ):
     """전체 분석 실행
 
@@ -98,7 +99,8 @@ async def run_analysis(
         print("[사용자 지정 구간] 주가/뉴스는 이 구간으로 조회하고, 재무·공매도는 기준일 스냅샷입니다.")
 
     # 분석 수행
-    analyzer = WeeklyAnalyzer(news_count=3, dart_api_key=dart_api_key, with_dart=with_dart, progress_callback=progress_callback, period=period)
+    analyzer = WeeklyAnalyzer(news_count=3, dart_api_key=dart_api_key, with_dart=with_dart,
+                              progress_callback=progress_callback, period=period, stage_callback=stage_callback)
     reporter = HtmlReporter()
 
     try:
@@ -139,15 +141,18 @@ async def run_analysis(
             references.append(('us', '^GSPC', 'S&P 500'))
         for key, ticker, label in references:
             try:
-                price = await analyzer.yfinance.get_weekly_price(
-                    ticker, start=period.start.isoformat(), end=period.end.isoformat(),
-                    include_live_quote=False,
-                )
+                price = await analyzer.collect_benchmark(ticker)
                 all_results['benchmarks'][key] = {'name': label, 'ticker': ticker, **price}
             except Exception as exc:
                 all_results['benchmarks'][key] = {'name': label, 'error': str(exc)}
 
         # 리포트 생성
+        counts = {'complete': 0, 'partial': 0, 'failed': 0}
+        for result in all_results['domestic'] + all_results['foreign']:
+            counts[result.get('analysis_status', 'failed' if result.get('error') else 'complete')] += 1
+        all_results['collection_summary'] = counts
+        if stage_callback:
+            await stage_callback({'stage': 'report', 'summary': counts, 'started_at': None, 'limit_seconds': None})
         output_dir = reporter.generate(all_results, period=period)
 
         print(f"\n=== 분석 완료 ===")
